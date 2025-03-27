@@ -1,0 +1,1 @@
+web: gunicorn chartink_webhook:app 

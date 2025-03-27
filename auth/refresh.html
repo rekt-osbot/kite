@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Zerodha Token Refresh</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            text-align: center; 
+            background-color: #f5f5f5;
+        }
+        .container { 
+            max-width: 500px; 
+            margin: 0 auto; 
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .header {
+            margin-bottom: 20px;
+        }
+        .button { 
+            background-color: #387ed1; 
+            color: white; 
+            border: none; 
+            padding: 12px 24px; 
+            border-radius: 4px; 
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .button:hover {
+            background-color: #2d6bba;
+        }
+        .status { 
+            margin-top: 20px; 
+            padding: 15px; 
+            border-radius: 4px; 
+            text-align: left;
+        }
+        .success { 
+            background-color: #e6ffe6; 
+            border: 1px solid #99cc99; 
+        }
+        .error { 
+            background-color: #ffe6e6; 
+            border: 1px solid #cc9999; 
+        }
+        .trading-info {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Zerodha Token Refresh</h1>
+            <p>Use this page to refresh your Zerodha API token when it expires.</p>
+        </div>
+        
+        <button id="loginBtn" class="button">Login to Zerodha</button>
+        
+        <div id="status" style="display: none;" class="status"></div>
+
+        <div class="trading-info">
+            <h3>Important Information</h3>
+            <p>Zerodha tokens expire at 6 AM IST every day. You'll need to refresh your token:</p>
+            <ul>
+                <li>Every morning before trading</li>
+                <li>After receiving a token expiry notification</li>
+                <li>If the ChartInk webhook stops working</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loginBtn').addEventListener('click', function() {
+            window.location.href = '/auth/login';
+        });
+
+        // Check current status on page load
+        fetch('/auth/status')
+            .then(response => response.json())
+            .then(data => {
+                let statusDiv = document.getElementById('status');
+                statusDiv.style.display = 'block';
+                
+                if (data.authenticated) {
+                    statusDiv.className = 'status success';
+                    statusDiv.innerHTML = `<p>✅ Currently logged in as: <strong>${data.user}</strong></p>
+                        <p>Last authenticated: ${data.last_login}</p>
+                        <p>Your ChartInk webhook is active and ready to receive alerts.</p>`;
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.innerHTML = '<p>❌ Not currently authenticated. Please click the login button.</p>';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                let statusDiv = document.getElementById('status');
+                statusDiv.style.display = 'block';
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = '<p>❌ Error checking authentication status.</p>';
+            });
+    </script>
+</body>
+</html> 
