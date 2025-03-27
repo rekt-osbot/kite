@@ -3,7 +3,7 @@ import time
 import logging
 import requests
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Configure logging to output to console
 logging.basicConfig(
@@ -13,81 +13,89 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def trigger_login_notification():
-    """Send a notification that login is required"""
+    """Trigger notification when login is required"""
     app_url = os.getenv("APP_URL", "")
-    if not app_url:
-        logger.error("APP_URL not set in environment variables")
-        return
+    login_url = f"{app_url}/auth/refresh" if app_url else "/auth/refresh"
     
-    login_url = f"{app_url}/auth/refresh"
+    logger.info(f"Login notification triggered: Token has expired. Login at {login_url}")
     
-    logger.info(f"Token expired. Login required at: {login_url}")
-    
-    # Try to send Telegram notification if module is available
+    # Try Telegram notification first
     try:
         from telegram_notifier import TelegramNotifier
         telegram = TelegramNotifier()
-        telegram.notify_auth_status(False)
+        telegram.notify_auth_status(False, "Authentication required")
+        logger.info("Sent login notification via Telegram")
+        return
     except Exception as e:
         logger.error(f"Failed to send Telegram notification: {e}")
     
-    # Also use ntfy.sh as a backup notification method
-    ntfy_topic = os.getenv("NTFY_TOPIC", "")
-    if ntfy_topic:
-        try:
-            requests.post(
-                f"https://ntfy.sh/{ntfy_topic}",
-                data=f"Zerodha token expired! Login required: {login_url}".encode("utf-8"),
-                headers={
-                    "Title": "Zerodha Login Required",
-                    "Priority": "urgent",
-                    "Tags": "warning"
-                }
-            )
-            logger.info(f"Notification sent to ntfy.sh/{ntfy_topic}")
-        except Exception as e:
-            logger.error(f"Failed to send notification: {e}")
+    # Fallback to ntfy.sh
+    try:
+        ntfy_topic = os.getenv("NTFY_TOPIC", "kitelogin")
+        requests.post(
+            f"https://ntfy.sh/{ntfy_topic}",
+            data=f"Zerodha token has expired. Login required at {login_url}",
+            headers={"Title": "Zerodha Login Required"}
+        )
+        logger.info(f"Sent login notification via ntfy.sh/{ntfy_topic}")
+    except Exception as e:
+        logger.error(f"Failed to send ntfy.sh notification: {e}")
+
+# Track the last notification time to avoid spamming
+last_notification_time = None
+last_check_time = None
+last_status = None
 
 def check_auth_status():
-    """Check if the Kite API is authenticated"""
-    app_url = os.getenv("APP_URL", "")
-    if not app_url:
-        logger.error("APP_URL not set in environment variables")
-        return False
+    """Check if authentication status is valid"""
+    global last_notification_time, last_check_time, last_status
     
-    status_url = f"{app_url}/auth/status"
+    # Don't check more than once every 5 minutes
+    current_time = datetime.now()
+    if last_check_time and (current_time - last_check_time < timedelta(minutes=5)):
+        return last_status
     
     try:
-        response = requests.get(status_url)
+        # Try to use the APP_URL environment variable, fall back to localhost
+        app_url = os.getenv("APP_URL", "http://localhost:5000")
+        response = requests.get(f"{app_url}/auth/status", timeout=10)
         data = response.json()
+        is_authenticated = data.get('authenticated', False)
         
-        if data.get("authenticated", False):
-            logger.info(f"Authentication valid. User: {data.get('user')}")
-            return True
-        else:
-            logger.warning("Authentication invalid or expired")
-            trigger_login_notification()
-            return False
+        # Update the last check time and status
+        last_check_time = current_time
+        last_status = is_authenticated
+        
+        # If not authenticated and we haven't notified in the last hour, send notification
+        if not is_authenticated:
+            if not last_notification_time or (current_time - last_notification_time > timedelta(hours=1)):
+                trigger_login_notification()
+                last_notification_time = current_time
+                
+        return is_authenticated
     except Exception as e:
         logger.error(f"Error checking auth status: {e}")
         return False
 
 def auth_checker_thread():
-    """Thread that periodically checks authentication status"""
-    # Check after a delay on startup (give the server time to start)
-    time.sleep(60)
-    check_auth_status()
+    """Thread to periodically check authentication status"""
+    logger.info("Starting authentication checker thread")
     
-    # Schedule checks - Zerodha tokens expire at 6 AM IST
-    # So we'll check a few times during the day
-    check_interval = 4 * 60 * 60  # 4 hours in seconds
+    # Wait 60 seconds after startup to allow server to initialize
+    time.sleep(60)
     
     while True:
-        time.sleep(check_interval)
-        check_auth_status()
+        try:
+            check_auth_status()
+        except Exception as e:
+            logger.error(f"Error in auth checker thread: {e}")
+        
+        # Check every 15 minutes
+        time.sleep(15 * 60)
 
 def start_scheduler():
-    """Start the scheduler thread"""
-    thread = threading.Thread(target=auth_checker_thread, daemon=True)
-    thread.start()
-    logger.info("Auth checker scheduler started") 
+    """Start scheduler background process"""
+    # Start authentication checker thread
+    t = threading.Thread(target=auth_checker_thread, daemon=True)
+    t.start()
+    logger.info("Scheduler started") 

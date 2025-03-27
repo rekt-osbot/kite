@@ -156,10 +156,35 @@
             window.location.href = '/auth/login';
         });
 
-        // Check current status on page load
+        // Cache auth status in localStorage
+        function getAuthStatusFromCache() {
+            const authCache = localStorage.getItem('authStatus');
+            if (authCache) {
+                try {
+                    const cache = JSON.parse(authCache);
+                    // On the auth page, always force a fresh check
+                    return null;
+                } catch (e) {
+                    console.error('Error parsing auth cache:', e);
+                }
+            }
+            return null;
+        }
+        
+        function setAuthStatusCache(data) {
+            localStorage.setItem('authStatus', JSON.stringify({
+                data: data,
+                timestamp: new Date()
+            }));
+        }
+
+        // Check current status on page load - always fresh on auth page
         fetch('/auth/status')
             .then(response => response.json())
             .then(data => {
+                // Update the cache even though we didn't use it here
+                setAuthStatusCache(data);
+                
                 let statusDiv = document.getElementById('status');
                 statusDiv.style.display = 'block';
                 

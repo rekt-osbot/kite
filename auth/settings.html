@@ -291,30 +291,60 @@
     </div>
 
     <script>
+        // Cache auth status in localStorage for persistence
+        function getAuthStatusFromCache() {
+            const authCache = localStorage.getItem('authStatus');
+            if (authCache) {
+                try {
+                    const cache = JSON.parse(authCache);
+                    
+                    // Check if cache has expired based on server-provided expiry time
+                    if (cache.data.cache_until) {
+                        const cacheExpiry = new Date(cache.data.cache_until);
+                        const now = new Date();
+                        if (now < cacheExpiry) {
+                            return cache.data;
+                        }
+                    } 
+                    // Fallback to client-side expiry if server didn't provide one
+                    else {
+                        const cacheTime = new Date(cache.timestamp);
+                        const now = new Date();
+                        // Use cache if less than 5 minutes old
+                        if (now - cacheTime < 5 * 60 * 1000) {
+                            return cache.data;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error parsing auth cache:', e);
+                }
+            }
+            return null;
+        }
+        
+        function setAuthStatusCache(data) {
+            localStorage.setItem('authStatus', JSON.stringify({
+                data: data,
+                timestamp: new Date()
+            }));
+        }
+        
         // Check authentication status
-        function checkAuth() {
-            fetch('/auth/status')
+        function checkAuth(forceRefresh = false) {
+            // Check if we have a valid cached auth status
+            const cachedStatus = !forceRefresh && getAuthStatusFromCache();
+            if (cachedStatus) {
+                updateAuthUI(cachedStatus);
+                return Promise.resolve(cachedStatus);
+            }
+            
+            // Otherwise fetch from server
+            return fetch('/auth/status')
                 .then(response => response.json())
                 .then(data => {
-                    let statusDiv = document.getElementById('auth-status');
-                    
-                    if (data.authenticated) {
-                        statusDiv.innerHTML = `
-                            <div class="auth-status">
-                                <div class="auth-icon auth-success">✓</div>
-                                <div>
-                                    <strong>${data.user}</strong> | Last login: ${formatAuthTimestamp(data.last_login)}
-                                </div>
-                            </div>`;
-                    } else {
-                        statusDiv.innerHTML = `
-                            <div class="auth-status">
-                                <div class="auth-icon auth-error">✗</div>
-                                <div>
-                                    Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to configure settings.
-                                </div>
-                            </div>`;
-                    }
+                    setAuthStatusCache(data);
+                    updateAuthUI(data);
+                    return data;
                 })
                 .catch(error => {
                     console.error('Error:', error);
@@ -323,7 +353,30 @@
                             <div class="auth-icon auth-error">✗</div>
                             <div>Error checking authentication status.</div>
                         </div>`;
+                    return { authenticated: false };
                 });
+        }
+        
+        function updateAuthUI(data) {
+            let statusDiv = document.getElementById('auth-status');
+            
+            if (data.authenticated) {
+                statusDiv.innerHTML = `
+                    <div class="auth-status">
+                        <div class="auth-icon auth-success">✓</div>
+                        <div>
+                            <strong>${data.user}</strong> | Last login: ${formatAuthTimestamp(data.last_login)}
+                        </div>
+                    </div>`;
+            } else {
+                statusDiv.innerHTML = `
+                    <div class="auth-status">
+                        <div class="auth-icon auth-error">✗</div>
+                        <div>
+                            Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to configure settings.
+                        </div>
+                    </div>`;
+            }
         }
         
         // Format timestamp for display
@@ -344,58 +397,71 @@
         
         // Load current settings
         function loadSettings() {
-            fetch('/api/settings')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        const settings = data.data;
-                        
-                        // Trading settings
-                        document.getElementById('defaultQuantity').value = settings.DEFAULT_QUANTITY || 1;
-                        document.getElementById('maxTradeValue').value = settings.MAX_TRADE_VALUE || 5000;
-                        document.getElementById('stopLossPercent').value = settings.STOP_LOSS_PERCENT || 2;
-                        document.getElementById('targetPercent').value = settings.TARGET_PERCENT || 4;
-                        
-                        // Telegram settings
-                        document.getElementById('telegramBotToken').value = settings.TELEGRAM_BOT_TOKEN || '';
-                        document.getElementById('telegramChatId').value = settings.TELEGRAM_CHAT_ID || '';
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showMessage('status-message', 'Error loading settings', 'error');
-                });
+            checkAuth().then(data => {
+                if (!data.authenticated) {
+                    return;
+                }
+                
+                fetch('/api/settings')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            const settings = data.data;
+                            
+                            // Trading settings
+                            document.getElementById('defaultQuantity').value = settings.DEFAULT_QUANTITY || 1;
+                            document.getElementById('maxTradeValue').value = settings.MAX_TRADE_VALUE || 5000;
+                            document.getElementById('stopLossPercent').value = settings.STOP_LOSS_PERCENT || 2;
+                            document.getElementById('targetPercent').value = settings.TARGET_PERCENT || 4;
+                            
+                            // Telegram settings
+                            document.getElementById('telegramBotToken').value = settings.TELEGRAM_BOT_TOKEN || '';
+                            document.getElementById('telegramChatId').value = settings.TELEGRAM_CHAT_ID || '';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        showMessage('status-message', 'Error loading settings', 'error');
+                    });
+            });
         }
         
         // Save trading settings
         document.getElementById('trading-settings-form').addEventListener('submit', function(e) {
             e.preventDefault();
             
-            const settings = {
-                DEFAULT_QUANTITY: parseInt(document.getElementById('defaultQuantity').value),
-                MAX_TRADE_VALUE: parseFloat(document.getElementById('maxTradeValue').value),
-                STOP_LOSS_PERCENT: parseFloat(document.getElementById('stopLossPercent').value),
-                TARGET_PERCENT: parseFloat(document.getElementById('targetPercent').value)
-            };
-            
-            fetch('/api/settings/trading', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(settings)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    showMessage('status-message', 'Trading settings saved successfully', 'success');
-                } else {
-                    showMessage('status-message', `Error: ${data.message}`, 'error');
+            checkAuth().then(data => {
+                if (!data.authenticated) {
+                    showMessage('status-message', 'Authentication required to save settings', 'error');
+                    return;
                 }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showMessage('status-message', 'Error saving settings', 'error');
+                
+                const settings = {
+                    DEFAULT_QUANTITY: parseInt(document.getElementById('defaultQuantity').value),
+                    MAX_TRADE_VALUE: parseFloat(document.getElementById('maxTradeValue').value),
+                    STOP_LOSS_PERCENT: parseFloat(document.getElementById('stopLossPercent').value),
+                    TARGET_PERCENT: parseFloat(document.getElementById('targetPercent').value)
+                };
+                
+                fetch('/api/settings/trading', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(settings)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showMessage('status-message', 'Trading settings saved successfully', 'success');
+                    } else {
+                        showMessage('status-message', `Error: ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showMessage('status-message', 'Error saving settings', 'error');
+                });
             });
         });
         
@@ -403,29 +469,36 @@
         document.getElementById('telegram-settings-form').addEventListener('submit', function(e) {
             e.preventDefault();
             
-            const settings = {
-                TELEGRAM_BOT_TOKEN: document.getElementById('telegramBotToken').value,
-                TELEGRAM_CHAT_ID: document.getElementById('telegramChatId').value
-            };
-            
-            fetch('/api/settings/telegram', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(settings)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    showMessage('telegram-status-message', 'Telegram settings saved successfully', 'success');
-                } else {
-                    showMessage('telegram-status-message', `Error: ${data.message}`, 'error');
+            checkAuth().then(data => {
+                if (!data.authenticated) {
+                    showMessage('telegram-status-message', 'Authentication required to save settings', 'error');
+                    return;
                 }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showMessage('telegram-status-message', 'Error saving Telegram settings', 'error');
+                
+                const settings = {
+                    TELEGRAM_BOT_TOKEN: document.getElementById('telegramBotToken').value,
+                    TELEGRAM_CHAT_ID: document.getElementById('telegramChatId').value
+                };
+                
+                fetch('/api/settings/telegram', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(settings)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showMessage('telegram-status-message', 'Telegram settings saved successfully', 'success');
+                    } else {
+                        showMessage('telegram-status-message', `Error: ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showMessage('telegram-status-message', 'Error saving Telegram settings', 'error');
+                });
             });
         });
         
@@ -439,27 +512,34 @@
                 return;
             }
             
-            fetch('/api/telegram/test', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    TELEGRAM_BOT_TOKEN: token,
-                    TELEGRAM_CHAT_ID: chatId
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    showMessage('telegram-status-message', 'Test message sent successfully', 'success');
-                } else {
-                    showMessage('telegram-status-message', `Error: ${data.message}`, 'error');
+            checkAuth().then(data => {
+                if (!data.authenticated) {
+                    showMessage('telegram-status-message', 'Authentication required to test Telegram', 'error');
+                    return;
                 }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showMessage('telegram-status-message', 'Error sending test message', 'error');
+                
+                fetch('/api/telegram/test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        TELEGRAM_BOT_TOKEN: token,
+                        TELEGRAM_CHAT_ID: chatId
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showMessage('telegram-status-message', 'Test message sent successfully', 'success');
+                    } else {
+                        showMessage('telegram-status-message', `Error: ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showMessage('telegram-status-message', 'Error sending test message', 'error');
+                });
             });
         });
         

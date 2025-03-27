@@ -264,30 +264,60 @@
     </div>
 
     <script>
+        // Cache auth status in localStorage for persistence
+        function getAuthStatusFromCache() {
+            const authCache = localStorage.getItem('authStatus');
+            if (authCache) {
+                try {
+                    const cache = JSON.parse(authCache);
+                    
+                    // Check if cache has expired based on server-provided expiry time
+                    if (cache.data.cache_until) {
+                        const cacheExpiry = new Date(cache.data.cache_until);
+                        const now = new Date();
+                        if (now < cacheExpiry) {
+                            return cache.data;
+                        }
+                    } 
+                    // Fallback to client-side expiry if server didn't provide one
+                    else {
+                        const cacheTime = new Date(cache.timestamp);
+                        const now = new Date();
+                        // Use cache if less than 5 minutes old
+                        if (now - cacheTime < 5 * 60 * 1000) {
+                            return cache.data;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error parsing auth cache:', e);
+                }
+            }
+            return null;
+        }
+        
+        function setAuthStatusCache(data) {
+            localStorage.setItem('authStatus', JSON.stringify({
+                data: data,
+                timestamp: new Date()
+            }));
+        }
+        
         // Check authentication status
-        function checkAuth() {
-            fetch('/auth/status')
+        function checkAuth(forceRefresh = false) {
+            // Check if we have a valid cached auth status
+            const cachedStatus = !forceRefresh && getAuthStatusFromCache();
+            if (cachedStatus) {
+                updateAuthUI(cachedStatus);
+                return Promise.resolve(cachedStatus);
+            }
+            
+            // Otherwise fetch from server
+            return fetch('/auth/status')
                 .then(response => response.json())
                 .then(data => {
-                    let statusDiv = document.getElementById('auth-status');
-                    
-                    if (data.authenticated) {
-                        statusDiv.innerHTML = `
-                            <div class="auth-status">
-                                <div class="auth-icon auth-success">✓</div>
-                                <div>
-                                    <strong>${data.user}</strong> | Last login: ${formatAuthTimestamp(data.last_login)}
-                                </div>
-                            </div>`;
-                    } else {
-                        statusDiv.innerHTML = `
-                            <div class="auth-status">
-                                <div class="auth-icon auth-error">✗</div>
-                                <div>
-                                    Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to view your positions and orders.
-                                </div>
-                            </div>`;
-                    }
+                    setAuthStatusCache(data);
+                    updateAuthUI(data);
+                    return data;
                 })
                 .catch(error => {
                     console.error('Error:', error);
@@ -296,153 +326,196 @@
                             <div class="auth-icon auth-error">✗</div>
                             <div>Error checking authentication status.</div>
                         </div>`;
+                    return { authenticated: false };
                 });
+        }
+        
+        function updateAuthUI(data) {
+            let statusDiv = document.getElementById('auth-status');
+            
+            if (data.authenticated) {
+                statusDiv.innerHTML = `
+                    <div class="auth-status">
+                        <div class="auth-icon auth-success">✓</div>
+                        <div>
+                            <strong>${data.user}</strong> | Last login: ${formatAuthTimestamp(data.last_login)}
+                        </div>
+                    </div>`;
+            } else {
+                statusDiv.innerHTML = `
+                    <div class="auth-status">
+                        <div class="auth-icon auth-error">✗</div>
+                        <div>
+                            Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to view your positions and orders.
+                        </div>
+                    </div>`;
+            }
         }
         
         // Fetch positions
         function fetchPositions() {
             document.getElementById('positions-container').innerHTML = '<div class="empty-state">Loading positions...</div>';
             
-            fetch('/api/positions')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        const positions = data.data.net;
-                        
-                        if (positions.length === 0) {
-                            document.getElementById('positions-container').innerHTML = '<div class="empty-state">No open positions</div>';
-                            document.getElementById('open-positions-count').textContent = '0';
-                            return;
-                        }
-                        
-                        let totalPnl = 0;
-                        let tableHtml = `
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Symbol</th>
-                                        <th>Qty</th>
-                                        <th>Avg. Price</th>
-                                        <th>LTP</th>
-                                        <th>P&L</th>
-                                        <th>Type</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                        `;
-                        
-                        positions.forEach(position => {
-                            const pnl = position.pnl;
-                            totalPnl += pnl;
+            checkAuth().then(data => {
+                if (!data.authenticated) {
+                    document.getElementById('positions-container').innerHTML = '<div class="empty-state">Please login to view positions</div>';
+                    return;
+                }
+                
+                fetch('/api/positions')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            const positions = data.data.net;
                             
-                            tableHtml += `
-                                <tr>
-                                    <td>${position.tradingsymbol}</td>
-                                    <td>${position.quantity}</td>
-                                    <td>₹${position.average_price.toFixed(2)}</td>
-                                    <td>₹${position.last_price.toFixed(2)}</td>
-                                    <td class="${pnl >= 0 ? 'profit' : 'loss'}">₹${pnl.toFixed(2)}</td>
-                                    <td>${position.product}</td>
-                                </tr>
+                            if (positions.length === 0) {
+                                document.getElementById('positions-container').innerHTML = '<div class="empty-state">No open positions</div>';
+                                document.getElementById('open-positions-count').textContent = '0';
+                                return;
+                            }
+                            
+                            let totalPnl = 0;
+                            let tableHtml = `
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Symbol</th>
+                                            <th>Qty</th>
+                                            <th>Avg. Price</th>
+                                            <th>LTP</th>
+                                            <th>P&L</th>
+                                            <th>Type</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
                             `;
-                        });
-                        
-                        tableHtml += '</tbody></table>';
-                        document.getElementById('positions-container').innerHTML = tableHtml;
-                        document.getElementById('open-positions-count').textContent = positions.length;
-                        
-                        // Update P&L summary
-                        document.getElementById('today-pnl').textContent = `₹${totalPnl.toFixed(2)}`;
-                        const pnlCard = document.getElementById('pnl-card');
-                        if (totalPnl >= 0) {
-                            pnlCard.className = 'summary-card green-bg';
+                            
+                            positions.forEach(position => {
+                                const pnl = position.pnl;
+                                totalPnl += pnl;
+                                
+                                tableHtml += `
+                                    <tr>
+                                        <td>${position.tradingsymbol}</td>
+                                        <td>${position.quantity}</td>
+                                        <td>₹${position.average_price.toFixed(2)}</td>
+                                        <td>₹${position.last_price.toFixed(2)}</td>
+                                        <td class="${pnl >= 0 ? 'profit' : 'loss'}">₹${pnl.toFixed(2)}</td>
+                                        <td>${position.product}</td>
+                                    </tr>
+                                `;
+                            });
+                            
+                            tableHtml += '</tbody></table>';
+                            document.getElementById('positions-container').innerHTML = tableHtml;
+                            document.getElementById('open-positions-count').textContent = positions.length;
+                            
+                            // Update P&L summary
+                            document.getElementById('today-pnl').textContent = `₹${totalPnl.toFixed(2)}`;
+                            const pnlCard = document.getElementById('pnl-card');
+                            if (totalPnl >= 0) {
+                                pnlCard.className = 'summary-card green-bg';
+                            } else {
+                                pnlCard.className = 'summary-card red-bg';
+                            }
+                            
+                            document.getElementById('positions-timestamp').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
                         } else {
-                            pnlCard.className = 'summary-card red-bg';
+                            document.getElementById('positions-container').innerHTML = `<div class="empty-state">Error: ${data.message}</div>`;
                         }
-                        
-                        document.getElementById('positions-timestamp').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
-                    } else {
-                        document.getElementById('positions-container').innerHTML = `<div class="empty-state">Error: ${data.message}</div>`;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    document.getElementById('positions-container').innerHTML = '<div class="empty-state">Error fetching positions</div>';
-                });
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        document.getElementById('positions-container').innerHTML = '<div class="empty-state">Error fetching positions</div>';
+                    });
+            });
         }
         
         // Fetch orders
         function fetchOrders() {
             document.getElementById('orders-container').innerHTML = '<div class="empty-state">Loading orders...</div>';
             
-            fetch('/api/orders')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        const orders = data.data;
-                        
-                        if (orders.length === 0) {
-                            document.getElementById('orders-container').innerHTML = '<div class="empty-state">No orders placed today</div>';
-                            return;
-                        }
-                        
-                        let tableHtml = `
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Order ID</th>
-                                        <th>Symbol</th>
-                                        <th>Type</th>
-                                        <th>Qty</th>
-                                        <th>Price</th>
-                                        <th>Status</th>
-                                        <th>Time</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                        `;
-                        
-                        orders.forEach(order => {
-                            tableHtml += `
-                                <tr>
-                                    <td>${order.order_id}</td>
-                                    <td>${order.tradingsymbol}</td>
-                                    <td>${order.transaction_type}</td>
-                                    <td>${order.quantity}</td>
-                                    <td>${order.price > 0 ? '₹' + order.price.toFixed(2) : 'MARKET'}</td>
-                                    <td class="${getStatusClass(order.status)}">${order.status}</td>
-                                    <td>${formatOrderTimestamp(order.order_timestamp)}</td>
-                                </tr>
+            checkAuth().then(data => {
+                if (!data.authenticated) {
+                    document.getElementById('orders-container').innerHTML = '<div class="empty-state">Please login to view orders</div>';
+                    return;
+                }
+                
+                fetch('/api/orders')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            const orders = data.data;
+                            
+                            if (orders.length === 0) {
+                                document.getElementById('orders-container').innerHTML = '<div class="empty-state">No orders placed today</div>';
+                                return;
+                            }
+                            
+                            let tableHtml = `
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Order ID</th>
+                                            <th>Symbol</th>
+                                            <th>Type</th>
+                                            <th>Qty</th>
+                                            <th>Price</th>
+                                            <th>Status</th>
+                                            <th>Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
                             `;
-                        });
-                        
-                        tableHtml += '</tbody></table>';
-                        document.getElementById('orders-container').innerHTML = tableHtml;
-                        document.getElementById('orders-timestamp').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
-                    } else {
-                        document.getElementById('orders-container').innerHTML = `<div class="empty-state">Error: ${data.message}</div>`;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    document.getElementById('orders-container').innerHTML = '<div class="empty-state">Error fetching orders</div>';
-                });
+                            
+                            orders.forEach(order => {
+                                tableHtml += `
+                                    <tr>
+                                        <td>${order.order_id}</td>
+                                        <td>${order.tradingsymbol}</td>
+                                        <td>${order.transaction_type}</td>
+                                        <td>${order.quantity}</td>
+                                        <td>${order.price > 0 ? '₹' + order.price.toFixed(2) : 'MARKET'}</td>
+                                        <td class="${getStatusClass(order.status)}">${order.status}</td>
+                                        <td>${formatOrderTimestamp(order.order_timestamp)}</td>
+                                    </tr>
+                                `;
+                            });
+                            
+                            tableHtml += '</tbody></table>';
+                            document.getElementById('orders-container').innerHTML = tableHtml;
+                            document.getElementById('orders-timestamp').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+                        } else {
+                            document.getElementById('orders-container').innerHTML = `<div class="empty-state">Error: ${data.message}</div>`;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        document.getElementById('orders-container').innerHTML = '<div class="empty-state">Error fetching orders</div>';
+                    });
+            });
         }
         
         // Fetch margins
         function fetchMargins() {
-            fetch('/api/margins')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        const equity = data.data.equity;
-                        document.getElementById('available-margin').textContent = `₹${equity.available.cash.toFixed(2)}`;
-                        document.getElementById('used-margin').textContent = `₹${equity.utilised.debits.toFixed(2)}`;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                });
+            checkAuth().then(data => {
+                if (!data.authenticated) {
+                    return;
+                }
+                
+                fetch('/api/margins')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            const equity = data.data.equity;
+                            document.getElementById('available-margin').textContent = `₹${equity.available.cash.toFixed(2)}`;
+                            document.getElementById('used-margin').textContent = `₹${equity.utilised.debits.toFixed(2)}`;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                    });
+            });
         }
         
         // Helper function to format order timestamps correctly

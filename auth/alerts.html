@@ -229,30 +229,60 @@
     </div>
 
     <script>
+        // Cache auth status in localStorage for persistence
+        function getAuthStatusFromCache() {
+            const authCache = localStorage.getItem('authStatus');
+            if (authCache) {
+                try {
+                    const cache = JSON.parse(authCache);
+                    
+                    // Check if cache has expired based on server-provided expiry time
+                    if (cache.data.cache_until) {
+                        const cacheExpiry = new Date(cache.data.cache_until);
+                        const now = new Date();
+                        if (now < cacheExpiry) {
+                            return cache.data;
+                        }
+                    } 
+                    // Fallback to client-side expiry if server didn't provide one
+                    else {
+                        const cacheTime = new Date(cache.timestamp);
+                        const now = new Date();
+                        // Use cache if less than 5 minutes old
+                        if (now - cacheTime < 5 * 60 * 1000) {
+                            return cache.data;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error parsing auth cache:', e);
+                }
+            }
+            return null;
+        }
+        
+        function setAuthStatusCache(data) {
+            localStorage.setItem('authStatus', JSON.stringify({
+                data: data,
+                timestamp: new Date()
+            }));
+        }
+        
         // Check authentication status
-        function checkAuth() {
-            fetch('/auth/status')
+        function checkAuth(forceRefresh = false) {
+            // Check if we have a valid cached auth status
+            const cachedStatus = !forceRefresh && getAuthStatusFromCache();
+            if (cachedStatus) {
+                updateAuthUI(cachedStatus);
+                return Promise.resolve(cachedStatus);
+            }
+            
+            // Otherwise fetch from server
+            return fetch('/auth/status')
                 .then(response => response.json())
                 .then(data => {
-                    let statusDiv = document.getElementById('auth-status');
-                    
-                    if (data.authenticated) {
-                        statusDiv.innerHTML = `
-                            <div class="auth-status">
-                                <div class="auth-icon auth-success">✓</div>
-                                <div>
-                                    <strong>${data.user}</strong> | Last login: ${formatAuthTimestamp(data.last_login)}
-                                </div>
-                            </div>`;
-                    } else {
-                        statusDiv.innerHTML = `
-                            <div class="auth-status">
-                                <div class="auth-icon auth-error">✗</div>
-                                <div>
-                                    Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to view your alerts.
-                                </div>
-                            </div>`;
-                    }
+                    setAuthStatusCache(data);
+                    updateAuthUI(data);
+                    return data;
                 })
                 .catch(error => {
                     console.error('Error:', error);
@@ -261,7 +291,30 @@
                             <div class="auth-icon auth-error">✗</div>
                             <div>Error checking authentication status.</div>
                         </div>`;
+                    return { authenticated: false };
                 });
+        }
+        
+        function updateAuthUI(data) {
+            let statusDiv = document.getElementById('auth-status');
+            
+            if (data.authenticated) {
+                statusDiv.innerHTML = `
+                    <div class="auth-status">
+                        <div class="auth-icon auth-success">✓</div>
+                        <div>
+                            <strong>${data.user}</strong> | Last login: ${formatAuthTimestamp(data.last_login)}
+                        </div>
+                    </div>`;
+            } else {
+                statusDiv.innerHTML = `
+                    <div class="auth-status">
+                        <div class="auth-icon auth-error">✗</div>
+                        <div>
+                            Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to view your alerts.
+                        </div>
+                    </div>`;
+            }
         }
         
         // Format timestamp for display
@@ -302,80 +355,87 @@
         function fetchAlerts() {
             document.getElementById('alerts-container').innerHTML = '<div class="empty-state">Loading alerts...</div>';
             
-            fetch('/api/alerts')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        const alerts = data.data;
-                        
-                        if (alerts.length === 0) {
-                            document.getElementById('alerts-container').innerHTML = '<div class="empty-state">No alerts received today</div>';
-                            return;
-                        }
-                        
-                        let alertsHtml = '';
-                        
-                        // Sort alerts by timestamp in descending order (newest first)
-                        alerts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-                        
-                        alerts.forEach(alert => {
-                            // Determine if it's a buy or sell signal based on scan name
-                            const scanLower = alert.scan_name.toLowerCase();
-                            const isBuy = scanLower.includes('buy') || scanLower.includes('bullish') || scanLower.includes('breakout');
-                            const isSell = scanLower.includes('sell') || scanLower.includes('bearish') || scanLower.includes('short');
-                            const signalClass = isBuy ? 'buy' : (isSell ? 'sell' : '');
-                            const cardClass = isBuy ? 'buy' : (isSell ? 'sell' : '');
-                            const badgeClass = isBuy ? 'buy-badge' : (isSell ? 'sell-badge' : '');
-                            const badgeText = isBuy ? 'BUY SIGNAL' : (isSell ? 'SELL SIGNAL' : 'ALERT');
+            checkAuth().then(data => {
+                if (!data.authenticated) {
+                    document.getElementById('alerts-container').innerHTML = '<div class="empty-state">Please login to view alerts</div>';
+                    return;
+                }
+                
+                fetch('/api/alerts')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            const alerts = data.data;
                             
-                            // Convert ISO timestamp to readable format
-                            const alertTime = formatAlertTimestamp(alert.timestamp);
-                            
-                            // Get stocks and prices
-                            const stocks = alert.stocks.split(',');
-                            const prices = alert.trigger_prices.split(',');
-                            
-                            // Create HTML for stocks list
-                            let stocksHtml = '<div class="stock-list">';
-                            for (let i = 0; i < stocks.length; i++) {
-                                if (stocks[i].trim()) {
-                                    stocksHtml += `
-                                        <div class="stock-item">
-                                            <span class="stock-symbol">${stocks[i].trim()}</span>
-                                            <span class="stock-price">₹${prices[i] ? prices[i].trim() : 'N/A'}</span>
-                                        </div>
-                                    `;
-                                }
+                            if (alerts.length === 0) {
+                                document.getElementById('alerts-container').innerHTML = '<div class="empty-state">No alerts received today</div>';
+                                return;
                             }
-                            stocksHtml += '</div>';
                             
-                            alertsHtml += `
-                                <div class="alert-card ${cardClass}">
-                                    <div class="alert-header">
-                                        <div class="${signalClass}">
-                                            ${alert.scan_name}
-                                            <span class="alert-badge ${badgeClass}">${badgeText}</span>
+                            let alertsHtml = '';
+                            
+                            // Sort alerts by timestamp in descending order (newest first)
+                            alerts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                            
+                            alerts.forEach(alert => {
+                                // Determine if it's a buy or sell signal based on scan name
+                                const scanLower = alert.scan_name.toLowerCase();
+                                const isBuy = scanLower.includes('buy') || scanLower.includes('bullish') || scanLower.includes('breakout');
+                                const isSell = scanLower.includes('sell') || scanLower.includes('bearish') || scanLower.includes('short');
+                                const signalClass = isBuy ? 'buy' : (isSell ? 'sell' : '');
+                                const cardClass = isBuy ? 'buy' : (isSell ? 'sell' : '');
+                                const badgeClass = isBuy ? 'buy-badge' : (isSell ? 'sell-badge' : '');
+                                const badgeText = isBuy ? 'BUY SIGNAL' : (isSell ? 'SELL SIGNAL' : 'ALERT');
+                                
+                                // Convert ISO timestamp to readable format
+                                const alertTime = formatAlertTimestamp(alert.timestamp);
+                                
+                                // Get stocks and prices
+                                const stocks = alert.stocks.split(',');
+                                const prices = alert.trigger_prices.split(',');
+                                
+                                // Create HTML for stocks list
+                                let stocksHtml = '<div class="stock-list">';
+                                for (let i = 0; i < stocks.length; i++) {
+                                    if (stocks[i].trim()) {
+                                        stocksHtml += `
+                                            <div class="stock-item">
+                                                <span class="stock-symbol">${stocks[i].trim()}</span>
+                                                <span class="stock-price">₹${prices[i] ? prices[i].trim() : 'N/A'}</span>
+                                            </div>
+                                        `;
+                                    }
+                                }
+                                stocksHtml += '</div>';
+                                
+                                alertsHtml += `
+                                    <div class="alert-card ${cardClass}">
+                                        <div class="alert-header">
+                                            <div class="${signalClass}">
+                                                ${alert.scan_name}
+                                                <span class="alert-badge ${badgeClass}">${badgeText}</span>
+                                            </div>
+                                            <div class="alert-time">${alertTime}</div>
                                         </div>
-                                        <div class="alert-time">${alertTime}</div>
+                                        <div class="alert-meta">
+                                            <div class="alert-meta-item">Alert: ${alert.alert_name}</div>
+                                            <div class="alert-meta-item">Triggered at: ${alert.triggered_at}</div>
+                                        </div>
+                                        ${stocksHtml}
                                     </div>
-                                    <div class="alert-meta">
-                                        <div class="alert-meta-item">Alert: ${alert.alert_name}</div>
-                                        <div class="alert-meta-item">Triggered at: ${alert.triggered_at}</div>
-                                    </div>
-                                    ${stocksHtml}
-                                </div>
-                            `;
-                        });
-                        
-                        document.getElementById('alerts-container').innerHTML = alertsHtml;
-                    } else {
-                        document.getElementById('alerts-container').innerHTML = `<div class="empty-state">Error: ${data.message}</div>`;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    document.getElementById('alerts-container').innerHTML = '<div class="empty-state">Error fetching alerts</div>';
-                });
+                                `;
+                            });
+                            
+                            document.getElementById('alerts-container').innerHTML = alertsHtml;
+                        } else {
+                            document.getElementById('alerts-container').innerHTML = `<div class="empty-state">Error: ${data.message}</div>`;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        document.getElementById('alerts-container').innerHTML = '<div class="empty-state">Error fetching alerts</div>';
+                    });
+            });
         }
         
         // Initial load

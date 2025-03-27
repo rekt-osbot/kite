@@ -1,7 +1,8 @@
 import json
 import os
 import logging
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, redirect, send_from_directory
 from dotenv import load_dotenv
 from kite_connect import KiteConnect
@@ -36,6 +37,14 @@ TARGET_PERCENT = float(os.getenv("TARGET_PERCENT", 4))
 # Store received alerts in memory (cleared on restart)
 # In production, consider using a database
 received_alerts = []
+
+# Global auth cache to reduce API calls
+auth_cache = {
+    "is_authenticated": False,
+    "user_profile": None,
+    "last_checked": None,
+    "access_token": None
+}
 
 # Authentication routes
 @app.route('/')
@@ -73,12 +82,23 @@ def auth_redirect():
     
     try:
         # Generate session from the request token
-        kite.generate_session(request_token)
+        session_data = kite.generate_session(request_token)
+        
+        # Update auth cache
+        global auth_cache
+        auth_cache["is_authenticated"] = True
+        auth_cache["last_checked"] = datetime.now()
+        auth_cache["access_token"] = session_data.get("access_token")
+        
+        # Get and store user profile
+        try:
+            auth_cache["user_profile"] = kite.get_profile()
+        except:
+            auth_cache["user_profile"] = {"user_name": "User"}
         
         # Notify via Telegram if enabled
         try:
-            profile = kite.get_profile()
-            telegram.notify_auth_status(True, profile.get('user_name', 'Unknown'))
+            telegram.notify_auth_status(True, auth_cache["user_profile"].get('user_name', 'Unknown'))
         except:
             pass
             
@@ -90,27 +110,78 @@ def auth_redirect():
 @app.route('/auth/status')
 def auth_status():
     """Check if authenticated with Kite"""
+    global auth_cache
+    current_time = datetime.now()
+    
+    # Use cached auth status if available and checked in the last 5 minutes
+    if (auth_cache["last_checked"] and 
+        auth_cache["is_authenticated"] and 
+        current_time - auth_cache["last_checked"] < timedelta(minutes=5)):
+        # Calculate when this cache expires
+        cache_expiry = auth_cache["last_checked"] + timedelta(minutes=5)
+        
+        return jsonify({
+            "status": "success", 
+            "authenticated": True, 
+            "user": auth_cache["user_profile"]["user_name"],
+            "last_login": auth_cache["last_checked"].strftime("%Y-%m-%d %H:%M:%S"),
+            "cached": True,
+            "cache_until": cache_expiry.strftime("%Y-%m-%dT%H:%M:%S")
+        })
+    
+    # Otherwise, check with Zerodha API
     try:
         profile = kite.get_profile()
+        
+        # Update cache
+        auth_cache["is_authenticated"] = True
+        auth_cache["user_profile"] = profile
+        auth_cache["last_checked"] = current_time
+        auth_cache["access_token"] = kite.access_token
+        
+        # Calculate when this cache will expire
+        cache_expiry = current_time + timedelta(minutes=5)
+        
         return jsonify({
             "status": "success", 
             "authenticated": True, 
             "user": profile['user_name'],
-            "last_login": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "last_login": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "cached": False,
+            "cache_until": cache_expiry.strftime("%Y-%m-%dT%H:%M:%S")
         })
-    except:
+    except Exception as e:
+        logger.debug(f"Auth status check failed: {e}")
+        auth_cache["is_authenticated"] = False
+        auth_cache["last_checked"] = current_time
         return jsonify({"status": "error", "authenticated": False})
 
 def authenticate_kite():
-    """Ensure Kite API is authenticated"""
+    """Ensure Kite API is authenticated using cached token when possible"""
+    global auth_cache
+    current_time = datetime.now()
+    
+    # If we checked recently and the token was valid, return True without checking again
+    if (auth_cache["last_checked"] and 
+        auth_cache["is_authenticated"] and 
+        current_time - auth_cache["last_checked"] < timedelta(minutes=5)):
+        return True
+    
+    # Otherwise, verify with actual API call
     try:
-        kite.get_profile()
-        logger.info("Kite API already authenticated")
+        profile = kite.get_profile()
+        
+        # Update cache
+        auth_cache["is_authenticated"] = True
+        auth_cache["user_profile"] = profile
+        auth_cache["last_checked"] = current_time
+        
+        logger.info(f"Kite API authenticated as {profile.get('user_name', 'User')}")
         return True
     except Exception as e:
+        auth_cache["is_authenticated"] = False
+        auth_cache["last_checked"] = current_time
         logger.error(f"Kite authentication error: {e}")
-        # For Railway deployment, we can't automatically login
-        # since it requires user interaction
         return False
 
 def place_order(symbol, transaction_type, quantity, order_type="MARKET", price=0):
@@ -318,45 +389,45 @@ def webhook():
         logger.error(f"Webhook error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# API Endpoints for Dashboard and Settings Pages
-@app.route('/api/positions', methods=['GET'])
+# API endpoints
+@app.route('/api/positions')
 def get_positions():
     """Get current positions"""
     if not authenticate_kite():
-        return jsonify({"status": "error", "message": "Kite authentication failed"}), 500
+        return jsonify({"status": "error", "message": "Not authenticated"})
     
     try:
         positions = kite.get_positions()
         return jsonify({"status": "success", "data": positions})
     except Exception as e:
-        logger.error(f"Error getting positions: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.error(f"Error fetching positions: {e}")
+        return jsonify({"status": "error", "message": str(e)})
 
-@app.route('/api/orders', methods=['GET'])
+@app.route('/api/orders')
 def get_orders():
     """Get today's orders"""
     if not authenticate_kite():
-        return jsonify({"status": "error", "message": "Kite authentication failed"}), 500
+        return jsonify({"status": "error", "message": "Not authenticated"})
     
     try:
         orders = kite.get_orders()
         return jsonify({"status": "success", "data": orders})
     except Exception as e:
-        logger.error(f"Error getting orders: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.error(f"Error fetching orders: {e}")
+        return jsonify({"status": "error", "message": str(e)})
 
-@app.route('/api/margins', methods=['GET'])
+@app.route('/api/margins')
 def get_margins():
     """Get available margins"""
     if not authenticate_kite():
-        return jsonify({"status": "error", "message": "Kite authentication failed"}), 500
+        return jsonify({"status": "error", "message": "Not authenticated"})
     
     try:
         margins = kite.get_margins()
         return jsonify({"status": "success", "data": margins})
     except Exception as e:
-        logger.error(f"Error getting margins: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.error(f"Error fetching margins: {e}")
+        return jsonify({"status": "error", "message": str(e)})
 
 @app.route('/api/alerts', methods=['GET'])
 def get_alerts():
