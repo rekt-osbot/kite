@@ -5,11 +5,10 @@ import requests
 import threading
 from datetime import datetime
 
-# Configure logging
+# Configure logging to output to console
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    filename='scheduler.log'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
