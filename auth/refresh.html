@@ -5,56 +5,121 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { 
-            font-family: Arial, sans-serif; 
+            font-family: 'Segoe UI', Arial, sans-serif; 
             margin: 0; 
-            padding: 20px; 
-            text-align: center; 
-            background-color: #f5f5f5;
+            padding: 0; 
+            background-color: #f8f9fa;
+            color: #333;
         }
         .container { 
-            max-width: 500px; 
+            max-width: 700px; 
             margin: 0 auto; 
             background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            padding: 25px;
+            margin-top: 50px;
         }
         .header {
-            margin-bottom: 20px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            color: #2c3e50;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        .header p {
+            color: #6c757d;
+            font-size: 16px;
+            margin-top: 0;
         }
         .button { 
-            background-color: #387ed1; 
+            background-color: #3a7bd5; 
             color: white; 
             border: none; 
-            padding: 12px 24px; 
-            border-radius: 4px; 
+            padding: 14px 28px; 
+            border-radius: 6px; 
             font-size: 16px;
+            font-weight: 500;
             cursor: pointer;
-            transition: background-color 0.3s;
+            transition: all 0.2s ease;
+            display: block;
+            margin: 30px auto;
+            width: 200px;
+            text-align: center;
         }
         .button:hover {
-            background-color: #2d6bba;
+            background-color: #2d67b2;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(58, 123, 213, 0.2);
         }
         .status { 
-            margin-top: 20px; 
-            padding: 15px; 
-            border-radius: 4px; 
-            text-align: left;
+            margin: 30px auto;
+            padding: 20px; 
+            border-radius: 8px;
+            max-width: 500px;
         }
         .success { 
-            background-color: #e6ffe6; 
-            border: 1px solid #99cc99; 
+            background-color: rgba(40, 167, 69, 0.1);
+            border: 1px solid rgba(40, 167, 69, 0.2);
+            border-left: 4px solid #28a745;
         }
         .error { 
-            background-color: #ffe6e6; 
-            border: 1px solid #cc9999; 
+            background-color: rgba(220, 53, 69, 0.1);
+            border: 1px solid rgba(220, 53, 69, 0.2);
+            border-left: 4px solid #dc3545;
         }
         .trading-info {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #f9f9f9;
-            border-radius: 4px;
-            text-align: left;
+            margin: 30px auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #eaeaea;
+            max-width: 500px;
+        }
+        .trading-info h3 {
+            margin-top: 0;
+            color: #2c3e50;
+            font-weight: 500;
+            border-bottom: 2px solid #eaeaea;
+            padding-bottom: 10px;
+        }
+        .trading-info ul {
+            padding-left: 20px;
+        }
+        .trading-info li {
+            margin-bottom: 10px;
+            color: #495057;
+        }
+        .auth-icon {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            background-color: #28a745;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 24px;
+            color: white;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        .nav {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .nav a {
+            text-decoration: none;
+            color: #3a7bd5;
+            font-weight: 600;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+        .nav a:hover {
+            background-color: #f0f4ff;
         }
     </style>
 </head>
@@ -78,6 +143,12 @@
                 <li>If the ChartInk webhook stops working</li>
             </ul>
         </div>
+        
+        <div class="nav">
+            <a href="/">Dashboard</a>
+            <a href="/auth/alerts">Alerts</a>
+            <a href="/auth/settings">Settings</a>
+        </div>
     </div>
 
     <script>
@@ -94,8 +165,9 @@
                 
                 if (data.authenticated) {
                     statusDiv.className = 'status success';
-                    statusDiv.innerHTML = `<p>✅ Currently logged in as: <strong>${data.user}</strong></p>
-                        <p>Last authenticated: ${data.last_login}</p>
+                    statusDiv.innerHTML = `
+                        <p><span class="auth-icon">✓</span> Currently logged in as: <strong>${data.user}</strong></p>
+                        <p>Last authenticated: ${formatTimestamp(data.last_login)}</p>
                         <p>Your ChartInk webhook is active and ready to receive alerts.</p>`;
                 } else {
                     statusDiv.className = 'status error';
@@ -109,6 +181,23 @@
                 statusDiv.className = 'status error';
                 statusDiv.innerHTML = '<p>❌ Error checking authentication status.</p>';
             });
+            
+        // Format timestamp for display
+        function formatTimestamp(timestamp) {
+            try {
+                const date = new Date(timestamp);
+                return date.toLocaleString('en-IN', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true
+                });
+            } catch (e) {
+                return timestamp;
+            }
+        }
     </script>
 </body>
 </html> 

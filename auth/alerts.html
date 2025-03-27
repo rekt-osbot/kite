@@ -5,129 +5,200 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { 
-            font-family: Arial, sans-serif; 
+            font-family: 'Segoe UI', Arial, sans-serif; 
             margin: 0; 
-            padding: 20px; 
-            background-color: #f5f5f5;
+            padding: 0; 
+            background-color: #f8f9fa;
+            color: #333;
         }
         .container { 
             max-width: 1200px; 
             margin: 0 auto; 
             background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            padding: 25px;
+            margin-top: 20px;
+            margin-bottom: 20px;
         }
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 10px;
+            margin-bottom: 25px;
+            border-bottom: 1px solid #eaeaea;
+            padding-bottom: 15px;
         }
         .nav {
             display: flex;
-            gap: 15px;
+            gap: 20px;
         }
         .nav a {
             text-decoration: none;
-            color: #387ed1;
-            font-weight: bold;
+            color: #3a7bd5;
+            font-weight: 600;
+            padding: 8px 12px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+        .nav a:hover {
+            background-color: #f0f4ff;
         }
         .card {
             background-color: #fff;
             border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
             padding: 15px;
             margin-bottom: 20px;
+            border-left: 4px solid #3a7bd5;
         }
         .section {
             margin-bottom: 30px;
         }
+        h1 {
+            color: #2c3e50;
+            font-weight: 600;
+        }
         h2 {
             margin-top: 0;
-            color: #333;
-            border-bottom: 2px solid #eee;
+            color: #2c3e50;
+            font-weight: 500;
+            border-bottom: 2px solid #eaeaea;
             padding-bottom: 10px;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
-        th, td {
-            padding: 12px 15px;
-            text-align: left;
-            border-bottom: 1px solid #eee;
-        }
-        th {
-            background-color: #f8f8f8;
-            font-weight: bold;
-        }
-        tr:hover {
-            background-color: #f9f9f9;
-        }
         .alert-card {
-            background-color: #f9f9f9;
+            background-color: #fff;
             border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            transition: transform 0.2s ease;
+            border-left: 4px solid #6c757d;
+        }
+        .alert-card:hover {
+            transform: translateY(-2px);
+        }
+        .alert-card.buy {
+            border-left-color: #28a745;
+        }
+        .alert-card.sell {
+            border-left-color: #dc3545;
         }
         .alert-header {
             display: flex;
             justify-content: space-between;
-            font-weight: bold;
-            margin-bottom: 10px;
-            padding-bottom: 5px;
-            border-bottom: 1px solid #eee;
+            align-items: center;
+            font-weight: 600;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eaeaea;
         }
         .alert-time {
-            color: #888;
+            color: #6c757d;
             font-size: 14px;
+            font-weight: normal;
         }
         .refresh-btn {
-            background-color: #387ed1;
+            background-color: #3a7bd5;
             color: white;
             border: none;
             padding: 8px 16px;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
+            font-weight: 500;
+            transition: background-color 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .refresh-btn:hover {
+            background-color: #2d67b2;
         }
         .buy {
-            color: green;
+            color: #28a745;
         }
         .sell {
-            color: red;
+            color: #dc3545;
         }
         .empty-state {
             text-align: center;
-            padding: 30px;
-            color: #888;
+            padding: 40px;
+            color: #6c757d;
+            background-color: #f9fafb;
+            border-radius: 8px;
+            border: 1px dashed #dee2e6;
         }
         .stock-list {
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
-            margin-top: 10px;
+            margin-top: 15px;
         }
         .stock-item {
-            background-color: #fff;
-            border-radius: 4px;
-            border: 1px solid #ddd;
-            padding: 5px 10px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #eaeaea;
+            padding: 8px 12px;
             display: flex;
             align-items: center;
+            transition: all 0.2s ease;
+        }
+        .stock-item:hover {
+            background-color: #f0f4ff;
+            border-color: #d0d9e6;
         }
         .stock-symbol {
-            font-weight: bold;
-            margin-right: 5px;
+            font-weight: 600;
+            margin-right: 8px;
         }
         .stock-price {
             font-size: 14px;
-            color: #666;
+            color: #495057;
+        }
+        .alert-meta {
+            margin: 10px 0;
+            color: #495057;
+        }
+        .alert-meta-item {
+            margin-bottom: 5px;
+        }
+        .auth-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .auth-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+        }
+        .auth-success {
+            background-color: #28a745;
+        }
+        .auth-error {
+            background-color: #dc3545;
+        }
+        .alert-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .buy-badge {
+            background-color: rgba(40, 167, 69, 0.1);
+            color: #28a745;
+        }
+        .sell-badge {
+            background-color: rgba(220, 53, 69, 0.1);
+            color: #dc3545;
         }
     </style>
 </head>
@@ -147,7 +218,9 @@
         <div class="section">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h2>Today's Alerts</h2>
-                <button id="refresh-alerts" class="refresh-btn">Refresh</button>
+                <button id="refresh-alerts" class="refresh-btn">
+                    <span>Refresh</span>
+                </button>
             </div>
             <div id="alerts-container">
                 <div class="empty-state">Loading alerts...</div>
@@ -164,15 +237,65 @@
                     let statusDiv = document.getElementById('auth-status');
                     
                     if (data.authenticated) {
-                        statusDiv.innerHTML = `<p>✅ Logged in as: <strong>${data.user}</strong> | Last authenticated: ${data.last_login}</p>`;
+                        statusDiv.innerHTML = `
+                            <div class="auth-status">
+                                <div class="auth-icon auth-success">✓</div>
+                                <div>
+                                    <strong>${data.user}</strong> | Last login: ${formatAuthTimestamp(data.last_login)}
+                                </div>
+                            </div>`;
                     } else {
-                        statusDiv.innerHTML = '<p>❌ Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to view your alerts and positions.</p>';
+                        statusDiv.innerHTML = `
+                            <div class="auth-status">
+                                <div class="auth-icon auth-error">✗</div>
+                                <div>
+                                    Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to view your alerts.
+                                </div>
+                            </div>`;
                     }
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    document.getElementById('auth-status').innerHTML = '<p>❌ Error checking authentication status.</p>';
+                    document.getElementById('auth-status').innerHTML = `
+                        <div class="auth-status">
+                            <div class="auth-icon auth-error">✗</div>
+                            <div>Error checking authentication status.</div>
+                        </div>`;
                 });
+        }
+        
+        // Format timestamp for display
+        function formatAuthTimestamp(timestamp) {
+            try {
+                const date = new Date(timestamp);
+                return date.toLocaleString('en-IN', {
+                    day: '2-digit',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true
+                });
+            } catch (e) {
+                return timestamp;
+            }
+        }
+        
+        // Format alert timestamp
+        function formatAlertTimestamp(isoTimestamp) {
+            try {
+                const date = new Date(isoTimestamp);
+                return date.toLocaleString('en-IN', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true
+                });
+            } catch (e) {
+                return 'N/A';
+            }
         }
         
         // Fetch alerts
@@ -192,15 +315,21 @@
                         
                         let alertsHtml = '';
                         
+                        // Sort alerts by timestamp in descending order (newest first)
+                        alerts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                        
                         alerts.forEach(alert => {
                             // Determine if it's a buy or sell signal based on scan name
                             const scanLower = alert.scan_name.toLowerCase();
                             const isBuy = scanLower.includes('buy') || scanLower.includes('bullish') || scanLower.includes('breakout');
                             const isSell = scanLower.includes('sell') || scanLower.includes('bearish') || scanLower.includes('short');
                             const signalClass = isBuy ? 'buy' : (isSell ? 'sell' : '');
+                            const cardClass = isBuy ? 'buy' : (isSell ? 'sell' : '');
+                            const badgeClass = isBuy ? 'buy-badge' : (isSell ? 'sell-badge' : '');
+                            const badgeText = isBuy ? 'BUY SIGNAL' : (isSell ? 'SELL SIGNAL' : 'ALERT');
                             
                             // Convert ISO timestamp to readable format
-                            const alertTime = new Date(alert.timestamp).toLocaleString();
+                            const alertTime = formatAlertTimestamp(alert.timestamp);
                             
                             // Get stocks and prices
                             const stocks = alert.stocks.split(',');
@@ -221,13 +350,18 @@
                             stocksHtml += '</div>';
                             
                             alertsHtml += `
-                                <div class="alert-card">
+                                <div class="alert-card ${cardClass}">
                                     <div class="alert-header">
-                                        <div class="${signalClass}">${alert.scan_name}</div>
+                                        <div class="${signalClass}">
+                                            ${alert.scan_name}
+                                            <span class="alert-badge ${badgeClass}">${badgeText}</span>
+                                        </div>
                                         <div class="alert-time">${alertTime}</div>
                                     </div>
-                                    <div>Alert: ${alert.alert_name}</div>
-                                    <div>Triggered at: ${alert.triggered_at}</div>
+                                    <div class="alert-meta">
+                                        <div class="alert-meta-item">Alert: ${alert.alert_name}</div>
+                                        <div class="alert-meta-item">Triggered at: ${alert.triggered_at}</div>
+                                    </div>
                                     ${stocksHtml}
                                 </div>
                             `;

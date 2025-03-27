@@ -29,6 +29,7 @@ This document explains the complete workflow for setting up and using the ChartI
    - Make sure you have:
      - `kite_connect.py`
      - `chartink_webhook.py`
+     - `telegram_notifier.py`
      - `Procfile`
      - `requirements.txt`
      - Other supporting files
@@ -53,6 +54,8 @@ This document explains the complete workflow for setting up and using the ChartI
      DEBUG=False
      APP_URL=https://kite-project-production.up.railway.app
      REDIRECT_URL=https://kite-project-production.up.railway.app/auth/redirect
+     TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+     TELEGRAM_CHAT_ID=your_telegram_chat_id
      ```
    - Upload these variables to Railway either via the web interface or CLI
 
@@ -60,13 +63,32 @@ This document explains the complete workflow for setting up and using the ChartI
    - Ensure your Zerodha app's Redirect URL is set to:
    - `https://kite-project-production.up.railway.app/auth/redirect`
 
-### 3. Initial Token Authentication
+### 3. Telegram Setup (Optional)
+
+1. **Create a Telegram Bot**:
+   - Open Telegram and search for "@BotFather"
+   - Start a chat and send "/newbot" command
+   - Follow instructions to create a bot
+   - Get the bot token (looks like "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ")
+
+2. **Get Your Chat ID**:
+   - Option 1: Open Telegram and search for "@userinfobot"
+   - Start a chat and it will display your chat ID
+   - 
+   - Option 2: For channels, use the channel username with @ prefix (e.g., "@mychannel")
+
+3. **Configure Telegram Settings**:
+   - Add your bot token and chat ID to the environment variables
+   - Or configure them via the Settings page in the app
+
+### 4. Initial Token Authentication
 
 1. **Access Your App**:
    - Open [https://kite-project-production.up.railway.app/](https://kite-project-production.up.railway.app/) in your browser
-   - You'll see the auth/refresh page
+   - You'll see the dashboard page
 
 2. **Authenticate with Zerodha**:
+   - If not authenticated, click "Authentication" in the top menu
    - Click "Login to Zerodha"
    - You'll be redirected to Zerodha's login page
    - Login with your Zerodha credentials
@@ -75,7 +97,7 @@ This document explains the complete workflow for setting up and using the ChartI
    - The page should now show "Currently logged in as: [Your Name]"
    - This means the access token has been successfully generated and stored
 
-### 4. ChartInk Configuration
+### 5. ChartInk Configuration
 
 1. **Create a Scanner in ChartInk**:
    - Login to [ChartInk](https://chartink.com/)
@@ -90,19 +112,45 @@ This document explains the complete workflow for setting up and using the ChartI
 
 ## Operational Workflow
 
-### Daily Authentication Process
+### 1. Daily Authentication Process
 
 1. **Token Expiry**:
    - Zerodha tokens expire at 6 AM IST every day
    - The app checks token validity periodically
+   - You'll receive a notification via Telegram if configured
 
 2. **Manual Refresh**:
-   - Visit [https://kite-project-production.up.railway.app/](https://kite-project-production.up.railway.app/)
+   - Visit [https://kite-project-production.up.railway.app/auth/refresh](https://kite-project-production.up.railway.app/auth/refresh)
    - Click "Login to Zerodha"
    - Complete the Zerodha login flow
    - Your token is now refreshed for the day
 
-### Trading Process
+### 2. Using the Dashboard
+
+1. **Viewing Positions and Orders**:
+   - Visit [https://kite-project-production.up.railway.app/](https://kite-project-production.up.railway.app/)
+   - The dashboard shows current positions, P&L, available margin, and orders
+   - Use the refresh buttons to update data in real-time
+
+2. **Viewing ChartInk Alerts**:
+   - Click "Alerts" in the navigation
+   - This page displays all ChartInk alerts received today
+   - Alerts are color-coded (green for buy signals, red for sell signals)
+   - Each alert shows the scanner name, triggered time, and list of stocks with prices
+
+3. **Configuring Trading Settings**:
+   - Click "Settings" in the navigation
+   - Modify trading parameters:
+     - Default Quantity: The default number of shares to trade
+     - Maximum Trade Value: The maximum rupee value per trade
+     - Stop Loss Percentage: The percentage below buy price for stop loss
+     - Target Percentage: The percentage above buy price for targets
+   - Configure Telegram notifications:
+     - Bot Token: Your Telegram bot token
+     - Chat ID: Your chat ID or channel name
+     - Test button: Verify your Telegram configuration
+
+### 3. Trading Process
 
 1. **ChartInk Alert Trigger**:
    - When your ChartInk scanner detects matching stocks
@@ -121,6 +169,8 @@ This document explains the complete workflow for setting up and using the ChartI
          "alert_name": "Alert for Short term breakouts"
      }
      ```
+   - The alert is logged and displayed on the Alerts page
+   - A notification is sent to Telegram (if configured)
 
 3. **Transaction Type Determination**:
    - The app looks at the scan name to determine buy/sell
@@ -129,16 +179,31 @@ This document explains the complete workflow for setting up and using the ChartI
 
 4. **Order Execution**:
    - For each stock in the alert:
-     1. Calculates quantity based on price and `MAX_TRADE_VALUE` (5000 INR)
+     1. Calculates quantity based on price and `MAX_TRADE_VALUE` (configurable)
      2. Places order through Zerodha Kite API
      3. For buy orders:
-        - Places stop-loss order at `price * (1 - STOP_LOSS_PERCENT/100)` (2% below price)
-        - Places target order at `price * (1 + TARGET_PERCENT/100)` (4% above price)
-     4. Logs the trade to `trade_log.json`
+        - Places stop-loss order at `price * (1 - STOP_LOSS_PERCENT/100)` (configurable)
+        - Places target order at `price * (1 + TARGET_PERCENT/100)` (configurable)
+     4. Logs the trade details
+     5. Sends execution notification to Telegram (if configured)
 
 5. **Trade Management**:
    - Stop-loss and target orders handle risk management automatically
-   - You can monitor positions and orders in your Zerodha account
+   - You can monitor positions and orders in your app dashboard or Zerodha account
+
+## Notifications
+
+1. **Telegram Notifications**:
+   - Authentication status changes
+   - ChartInk alerts received
+   - Trade executions
+   - Stop loss and target order placements
+
+2. **Web Dashboard**:
+   - Realtime trade status
+   - Current positions and P&L
+   - Order history
+   - Alert history
 
 ## Data Flow Diagram
 
@@ -176,6 +241,11 @@ This document explains the complete workflow for setting up and using the ChartI
    - Ensure you have sufficient funds in your Zerodha account
    - Check if the market is open (orders won't execute during market closure)
    - Verify the trading symbols from ChartInk match Zerodha's format
+
+4. **Telegram Notifications Not Working**:
+   - Verify bot token and chat ID are correctly entered
+   - Ensure you've started a conversation with your bot in Telegram
+   - Use the "Test Notification" button in Settings to diagnose issues
 
 ## Current Configuration
 
