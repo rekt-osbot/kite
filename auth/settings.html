@@ -3,202 +3,359 @@
 <head>
     <title>Trading Settings</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
     <style>
+        :root {
+            --primary: #3a7bd5;
+            --primary-light: #6ea8fe;
+            --primary-dark: #2d67b2;
+            --primary-gradient: linear-gradient(120deg, #3a7bd5, #00d2ff);
+            --success: #28a745;
+            --success-light: #d1f0db;
+            --success-gradient: linear-gradient(120deg, #28a745, #98ec2d);
+            --danger: #dc3545;
+            --danger-light: #f8d7da;
+            --danger-gradient: linear-gradient(120deg, #dc3545, #ff6a78);
+            --warning: #ffc107;
+            --info: #17a2b8;
+            --dark: #2c3e50;
+            --light: #f8f9fa;
+            --muted: #6c757d;
+            --border: #eaeaea;
+            --shadow-sm: 0 2px 4px rgba(0,0,0,0.05);
+            --shadow: 0 4px 15px rgba(0,0,0,0.08);
+            --shadow-lg: 0 10px 25px rgba(0,0,0,0.1);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --font-main: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
         body { 
-            font-family: 'Segoe UI', Arial, sans-serif; 
+            font-family: var(--font-main); 
             margin: 0; 
             padding: 0; 
             background-color: #f8f9fa;
-            color: #333;
+            color: var(--dark);
+            line-height: 1.5;
         }
+        
+        /* Modern glass-like container */
         .container { 
             max-width: 900px; 
             margin: 0 auto; 
-            background-color: #fff;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            background-color: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
             padding: 25px;
             margin-top: 20px;
             margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
+        
+        /* Modern navbar with gradient */
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 25px;
-            border-bottom: 1px solid #eaeaea;
+            border-bottom: 1px solid var(--border);
             padding-bottom: 15px;
+            position: relative;
+            overflow: hidden;
         }
+        
+        .header h1 {
+            position: relative;
+            z-index: 1;
+            color: var(--dark);
+            font-weight: 700;
+            font-size: 28px;
+            margin: 0;
+        }
+        
         .nav {
             display: flex;
-            gap: 20px;
+            gap: 5px;
+            position: relative;
+            z-index: 1;
         }
+        
         .nav a {
             text-decoration: none;
-            color: #3a7bd5;
+            color: var(--primary);
             font-weight: 600;
-            padding: 8px 12px;
-            border-radius: 6px;
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
             transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
+        
+        .nav a i {
+            font-size: 18px;
+        }
+        
         .nav a:hover {
-            background-color: #f0f4ff;
+            background-color: rgba(58, 123, 213, 0.1);
+            transform: translateY(-2px);
         }
+        
         .card {
             background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            padding: 15px;
+            border-radius: var(--radius-sm);
+            box-shadow: var(--shadow-sm);
+            padding: 20px;
             margin-bottom: 20px;
-            border-left: 4px solid #3a7bd5;
+            border-left: 4px solid var(--primary);
         }
+        
+        /* Modern sections with refined styling */
         .section {
             margin-bottom: 30px;
             padding: 25px;
             background-color: #fff;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
         }
-        h1 {
-            color: #2c3e50;
-            font-weight: 600;
+        
+        .section:hover {
+            box-shadow: var(--shadow);
         }
+        
         h2 {
             margin-top: 0;
-            color: #2c3e50;
-            font-weight: 500;
-            border-bottom: 2px solid #eaeaea;
+            color: var(--dark);
+            font-weight: 700;
+            font-size: 20px;
+            border-bottom: 2px solid var(--border);
             padding-bottom: 10px;
         }
+        
+        /* Beautiful form controls */
         .form-group {
             margin-bottom: 20px;
         }
+        
         label {
             display: block;
             margin-bottom: 8px;
             font-weight: 600;
-            color: #495057;
+            color: var(--dark);
         }
+        
         small {
             display: block;
             margin-top: 5px;
-            color: #6c757d;
+            color: var(--muted);
             font-size: 13px;
         }
+        
         input, select {
             width: 100%;
             padding: 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
             box-sizing: border-box;
             font-size: 16px;
-            transition: border-color 0.2s ease;
+            transition: all 0.2s ease;
             background-color: #f8f9fa;
-            color: #495057;
+            color: var(--dark);
         }
+        
         input:focus, select:focus {
             outline: none;
-            border-color: #3a7bd5;
+            border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(58, 123, 213, 0.1);
+            transform: translateY(-1px);
         }
+        
         .input-group {
             display: flex;
-            align-items: center;
+            align-items: stretch;
         }
+        
         .input-group input {
             flex: 1;
             border-top-right-radius: 0;
             border-bottom-right-radius: 0;
         }
+        
         .input-group-addon {
             padding: 12px 15px;
             background-color: #e9ecef;
-            border: 1px solid #ddd;
+            border: 1px solid var(--border);
             border-left: none;
-            border-radius: 0 6px 6px 0;
-            color: #495057;
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            color: var(--muted);
             font-weight: 500;
+            display: flex;
+            align-items: center;
         }
+        
+        /* Beautiful buttons */
         .form-actions {
             margin-top: 25px;
             display: flex;
             justify-content: flex-end;
+            gap: 10px;
         }
+        
         .btn {
             padding: 12px 24px;
-            border-radius: 6px;
+            border-radius: var(--radius-sm);
             border: none;
             font-size: 16px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
+        
+        .btn i {
+            font-size: 18px;
+        }
+        
         .btn-primary {
-            background-color: #3a7bd5;
+            background-color: var(--primary);
             color: white;
         }
+        
         .btn-primary:hover {
-            background-color: #2d67b2;
-            transform: translateY(-1px);
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-sm);
         }
+        
+        .btn-secondary {
+            background-color: #f8f9fa;
+            color: var(--dark);
+            border: 1px solid var(--border);
+        }
+        
+        .btn-secondary:hover {
+            background-color: #e9ecef;
+            transform: translateY(-2px);
+        }
+        
+        /* Status messages */
         .status-message {
-            padding: 12px 15px;
+            padding: 15px;
             margin-top: 15px;
-            border-radius: 6px;
+            border-radius: var(--radius-sm);
             font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
+        
         .success-message {
-            background-color: rgba(40, 167, 69, 0.1);
+            background-color: var(--success-light);
             border: 1px solid rgba(40, 167, 69, 0.2);
-            color: #28a745;
+            color: var(--success);
         }
+        
         .error-message {
-            background-color: rgba(220, 53, 69, 0.1);
+            background-color: var(--danger-light);
             border: 1px solid rgba(220, 53, 69, 0.2);
-            color: #dc3545;
+            color: var(--danger);
         }
+        
+        /* Section dividers */
         .telegram-section {
             margin-top: 30px;
             padding-top: 25px;
-            border-top: 1px solid #eaeaea;
+            border-top: 1px solid var(--border);
         }
+        
+        /* Status indicators */
         .auth-status {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 15px;
+            padding: 20px;
+            border-radius: var(--radius-sm);
+            margin-bottom: 25px;
+            transition: all 0.3s ease;
         }
-        .auth-icon {
-            width: 24px;
-            height: 24px;
+        
+        .auth-success {
+            background-color: var(--success-light);
+            border-left: 4px solid var(--success);
+        }
+        
+        .auth-error {
+            background-color: var(--danger-light);
+            border-left: 4px solid var(--danger);
+        }
+        
+        .auth-status i {
+            font-size: 24px;
+        }
+        
+        .auth-success i {
+            color: var(--success);
+        }
+        
+        .auth-error i {
+            color: var(--danger);
+        }
+        
+        /* Section icons */
+        .section-heading {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .section-icon {
+            width: 42px;
+            height: 42px;
+            background: var(--primary-gradient);
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-size: 12px;
+            font-size: 20px;
+            box-shadow: var(--shadow-sm);
         }
-        .auth-success {
-            background-color: #28a745;
-        }
-        .auth-error {
-            background-color: #dc3545;
-        }
-        .section-heading {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        .section-icon {
-            width: 32px;
-            height: 32px;
-            background-color: #f0f4ff;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #3a7bd5;
-            font-size: 16px;
+        
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+                margin: 10px;
+                border-radius: var(--radius-sm);
+            }
+            
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            
+            .nav {
+                width: 100%;
+                overflow-x: auto;
+                padding-bottom: 5px;
+            }
+            
+            .form-actions {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+                justify-content: center;
+            }
         }
     </style>
 </head>
@@ -207,17 +364,19 @@
         <div class="header">
             <h1>Trading Settings</h1>
             <div class="nav">
-                <a href="/auth/refresh">Authentication</a>
-                <a href="/">Dashboard</a>
-                <a href="/auth/alerts">Alerts</a>
+                <a href="/auth/refresh"><i class="ri-login-circle-line"></i> Authentication</a>
+                <a href="/"><i class="ri-dashboard-line"></i> Dashboard</a>
+                <a href="/auth/alerts"><i class="ri-notification-line"></i> Alerts</a>
             </div>
         </div>
 
-        <div id="auth-status" class="card"></div>
+        <div id="auth-status"></div>
         
         <div class="section">
             <div class="section-heading">
-                <div class="section-icon">⚙️</div>
+                <div class="section-icon">
+                    <i class="ri-settings-3-line"></i>
+                </div>
                 <h2>Trading Parameters</h2>
             </div>
             <form id="trading-settings-form">
@@ -254,312 +413,269 @@
                     <small>Target order will be placed at this percentage above the buy price</small>
                 </div>
                 
-                <div id="status-message" style="display: none;"></div>
-                
                 <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                    <button type="button" id="reset-trading-settings" class="btn btn-secondary">
+                        <i class="ri-refresh-line"></i> Reset
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="ri-save-line"></i> Save Settings
+                    </button>
                 </div>
+                
+                <div id="trading-settings-message"></div>
             </form>
         </div>
         
         <div class="section telegram-section">
             <div class="section-heading">
-                <div class="section-icon">📱</div>
+                <div class="section-icon">
+                    <i class="ri-telegram-line"></i>
+                </div>
                 <h2>Telegram Notifications</h2>
             </div>
             <form id="telegram-settings-form">
                 <div class="form-group">
                     <label for="telegramBotToken">Telegram Bot Token</label>
-                    <input type="text" id="telegramBotToken">
-                    <small>API token from BotFather (leave empty to disable Telegram notifications)</small>
+                    <input type="password" id="telegramBotToken" placeholder="Enter your Telegram bot token">
+                    <small>Create a bot with BotFather and paste the token here</small>
                 </div>
                 
                 <div class="form-group">
                     <label for="telegramChatId">Telegram Chat ID</label>
-                    <input type="text" id="telegramChatId">
-                    <small>Your chat ID or channel name (@channel) where notifications should be sent</small>
+                    <input type="text" id="telegramChatId" placeholder="Enter your chat ID or channel name">
+                    <small>Your personal chat ID or channel name (with @ prefix)</small>
                 </div>
-                
-                <div id="telegram-status-message" style="display: none;"></div>
                 
                 <div class="form-actions">
-                    <button type="button" id="test-telegram" class="btn btn-primary" style="margin-right: 10px;">Test Notification</button>
-                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                    <button type="button" id="test-telegram" class="btn btn-secondary">
+                        <i class="ri-send-plane-line"></i> Test Notification
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="ri-save-line"></i> Save Settings
+                    </button>
                 </div>
+                
+                <div id="telegram-settings-message"></div>
             </form>
         </div>
     </div>
 
     <script>
-        // Cache auth status in localStorage for persistence
-        function getAuthStatusFromCache() {
-            const authCache = localStorage.getItem('authStatus');
-            if (authCache) {
-                try {
-                    const cache = JSON.parse(authCache);
+        // Function to display authentication status
+        function updateAuthStatus() {
+            fetch('/auth/status')
+                .then(response => response.json())
+                .then(data => {
+                    const authStatusDiv = document.getElementById('auth-status');
                     
-                    // Check if cache has expired based on server-provided expiry time
-                    if (cache.data.cache_until) {
-                        const cacheExpiry = new Date(cache.data.cache_until);
-                        const now = new Date();
-                        if (now < cacheExpiry) {
-                            return cache.data;
-                        }
-                    } 
-                    // Fallback to client-side expiry if server didn't provide one
-                    else {
-                        const cacheTime = new Date(cache.timestamp);
-                        const now = new Date();
-                        // Use cache if less than 5 minutes old
-                        if (now - cacheTime < 5 * 60 * 1000) {
-                            return cache.data;
-                        }
+                    if (data.authenticated) {
+                        authStatusDiv.innerHTML = `
+                            <div class="auth-status auth-success">
+                                <i class="ri-check-double-line"></i>
+                                <div>
+                                    <div><strong>Currently logged in as: ${data.user_name}</strong></div>
+                                    <div>Authentication valid until: ${data.expiry}</div>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        authStatusDiv.innerHTML = `
+                            <div class="auth-status auth-error">
+                                <i class="ri-error-warning-line"></i>
+                                <div>
+                                    <div><strong>Not authenticated with Zerodha</strong></div>
+                                    <div>Please <a href="/auth/refresh">login to Zerodha</a> to continue.</div>
+                                </div>
+                            </div>
+                        `;
                     }
-                } catch (e) {
-                    console.error('Error parsing auth cache:', e);
-                }
-            }
-            return null;
-        }
-        
-        function setAuthStatusCache(data) {
-            localStorage.setItem('authStatus', JSON.stringify({
-                data: data,
-                timestamp: new Date()
-            }));
-        }
-        
-        // Check authentication status
-        function checkAuth(forceRefresh = false) {
-            // Check if we have a valid cached auth status
-            const cachedStatus = !forceRefresh && getAuthStatusFromCache();
-            if (cachedStatus) {
-                updateAuthUI(cachedStatus);
-                return Promise.resolve(cachedStatus);
-            }
-            
-            // Otherwise fetch from server
-            return fetch('/auth/status')
-                .then(response => response.json())
-                .then(data => {
-                    setAuthStatusCache(data);
-                    updateAuthUI(data);
-                    return data;
                 })
                 .catch(error => {
-                    console.error('Error:', error);
+                    console.error('Error fetching auth status:', error);
                     document.getElementById('auth-status').innerHTML = `
-                        <div class="auth-status">
-                            <div class="auth-icon auth-error">✗</div>
-                            <div>Error checking authentication status.</div>
-                        </div>`;
-                    return { authenticated: false };
-                });
-        }
-        
-        function updateAuthUI(data) {
-            let statusDiv = document.getElementById('auth-status');
-            
-            if (data.authenticated) {
-                statusDiv.innerHTML = `
-                    <div class="auth-status">
-                        <div class="auth-icon auth-success">✓</div>
-                        <div>
-                            <strong>${data.user}</strong> | Last login: ${formatAuthTimestamp(data.last_login)}
+                        <div class="auth-status auth-error">
+                            <i class="ri-error-warning-line"></i>
+                            <div>
+                                <div><strong>Error checking authentication status</strong></div>
+                                <div>Please try <a href="/auth/refresh">refreshing your authentication</a>.</div>
+                            </div>
                         </div>
-                    </div>`;
-            } else {
-                statusDiv.innerHTML = `
-                    <div class="auth-status">
-                        <div class="auth-icon auth-error">✗</div>
-                        <div>
-                            Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to configure settings.
-                        </div>
-                    </div>`;
-            }
-        }
-        
-        // Format timestamp for display
-        function formatAuthTimestamp(timestamp) {
-            try {
-                const date = new Date(timestamp);
-                return date.toLocaleString('en-IN', {
-                    day: '2-digit',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true
+                    `;
                 });
-            } catch (e) {
-                return timestamp;
-            }
         }
         
-        // Load current settings
-        function loadSettings() {
-            checkAuth().then(data => {
-                if (!data.authenticated) {
-                    return;
-                }
-                
-                fetch('/api/settings')
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.status === 'success') {
-                            const settings = data.data;
-                            
-                            // Trading settings
-                            document.getElementById('defaultQuantity').value = settings.DEFAULT_QUANTITY || 1;
-                            document.getElementById('maxTradeValue').value = settings.MAX_TRADE_VALUE || 5000;
-                            document.getElementById('stopLossPercent').value = settings.STOP_LOSS_PERCENT || 2;
-                            document.getElementById('targetPercent').value = settings.TARGET_PERCENT || 4;
-                            
-                            // Telegram settings
-                            document.getElementById('telegramBotToken').value = settings.TELEGRAM_BOT_TOKEN || '';
-                            document.getElementById('telegramChatId').value = settings.TELEGRAM_CHAT_ID || '';
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                        showMessage('status-message', 'Error loading settings', 'error');
-                    });
-            });
-        }
-        
-        // Save trading settings
-        document.getElementById('trading-settings-form').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            checkAuth().then(data => {
-                if (!data.authenticated) {
-                    showMessage('status-message', 'Authentication required to save settings', 'error');
-                    return;
-                }
-                
-                const settings = {
-                    DEFAULT_QUANTITY: parseInt(document.getElementById('defaultQuantity').value),
-                    MAX_TRADE_VALUE: parseFloat(document.getElementById('maxTradeValue').value),
-                    STOP_LOSS_PERCENT: parseFloat(document.getElementById('stopLossPercent').value),
-                    TARGET_PERCENT: parseFloat(document.getElementById('targetPercent').value)
-                };
-                
-                fetch('/api/settings/trading', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(settings)
-                })
+        // Function to load trading settings
+        function loadTradingSettings() {
+            fetch('/settings/trading')
                 .then(response => response.json())
                 .then(data => {
-                    if (data.status === 'success') {
-                        showMessage('status-message', 'Trading settings saved successfully', 'success');
+                    if (data.success) {
+                        document.getElementById('defaultQuantity').value = data.settings.default_quantity || 1;
+                        document.getElementById('maxTradeValue').value = data.settings.max_trade_value || 5000;
+                        document.getElementById('stopLossPercent').value = data.settings.stop_loss_percent || 2;
+                        document.getElementById('targetPercent').value = data.settings.target_percent || 4;
                     } else {
-                        showMessage('status-message', `Error: ${data.message}`, 'error');
+                        showTradingSettingsMessage('error', 'Failed to load settings: ' + data.message);
                     }
                 })
                 .catch(error => {
-                    console.error('Error:', error);
-                    showMessage('status-message', 'Error saving settings', 'error');
+                    console.error('Error loading trading settings:', error);
+                    showTradingSettingsMessage('error', 'Error loading settings. Please try again.');
                 });
-            });
-        });
+        }
         
-        // Save Telegram settings
-        document.getElementById('telegram-settings-form').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            checkAuth().then(data => {
-                if (!data.authenticated) {
-                    showMessage('telegram-status-message', 'Authentication required to save settings', 'error');
-                    return;
-                }
-                
-                const settings = {
-                    TELEGRAM_BOT_TOKEN: document.getElementById('telegramBotToken').value,
-                    TELEGRAM_CHAT_ID: document.getElementById('telegramChatId').value
-                };
-                
-                fetch('/api/settings/telegram', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(settings)
-                })
+        // Function to load telegram settings
+        function loadTelegramSettings() {
+            fetch('/settings/telegram')
                 .then(response => response.json())
                 .then(data => {
-                    if (data.status === 'success') {
-                        showMessage('telegram-status-message', 'Telegram settings saved successfully', 'success');
+                    if (data.success) {
+                        document.getElementById('telegramBotToken').value = data.settings.telegram_bot_token || '';
+                        document.getElementById('telegramChatId').value = data.settings.telegram_chat_id || '';
                     } else {
-                        showMessage('telegram-status-message', `Error: ${data.message}`, 'error');
+                        showTelegramSettingsMessage('error', 'Failed to load settings: ' + data.message);
                     }
                 })
                 .catch(error => {
-                    console.error('Error:', error);
-                    showMessage('telegram-status-message', 'Error saving Telegram settings', 'error');
+                    console.error('Error loading telegram settings:', error);
+                    showTelegramSettingsMessage('error', 'Error loading settings. Please try again.');
                 });
-            });
-        });
+        }
         
-        // Test Telegram notification
-        document.getElementById('test-telegram').addEventListener('click', function() {
-            const token = document.getElementById('telegramBotToken').value;
-            const chatId = document.getElementById('telegramChatId').value;
+        // Function to show trading settings message
+        function showTradingSettingsMessage(type, message) {
+            const messageElement = document.getElementById('trading-settings-message');
+            messageElement.className = type === 'success' ? 'status-message success-message' : 'status-message error-message';
             
-            if (!token || !chatId) {
-                showMessage('telegram-status-message', 'Please enter both Bot Token and Chat ID', 'error');
-                return;
-            }
+            const icon = type === 'success' ? '<i class="ri-checkbox-circle-line"></i>' : '<i class="ri-error-warning-line"></i>';
+            messageElement.innerHTML = `${icon} ${message}`;
             
-            checkAuth().then(data => {
-                if (!data.authenticated) {
-                    showMessage('telegram-status-message', 'Authentication required to test Telegram', 'error');
-                    return;
-                }
-                
-                fetch('/api/telegram/test', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        TELEGRAM_BOT_TOKEN: token,
-                        TELEGRAM_CHAT_ID: chatId
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        showMessage('telegram-status-message', 'Test message sent successfully', 'success');
-                    } else {
-                        showMessage('telegram-status-message', `Error: ${data.message}`, 'error');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showMessage('telegram-status-message', 'Error sending test message', 'error');
-                });
-            });
-        });
-        
-        // Helper function to show messages
-        function showMessage(elementId, message, type) {
-            const element = document.getElementById(elementId);
-            element.innerHTML = message;
-            element.className = type === 'success' ? 'status-message success-message' : 'status-message error-message';
-            element.style.display = 'block';
-            
-            // Hide the message after 5 seconds
+            // Auto-hide after 5 seconds
             setTimeout(() => {
-                element.style.display = 'none';
+                messageElement.innerHTML = '';
+                messageElement.className = '';
             }, 5000);
         }
         
-        // Initial load
+        // Function to show telegram settings message
+        function showTelegramSettingsMessage(type, message) {
+            const messageElement = document.getElementById('telegram-settings-message');
+            messageElement.className = type === 'success' ? 'status-message success-message' : 'status-message error-message';
+            
+            const icon = type === 'success' ? '<i class="ri-checkbox-circle-line"></i>' : '<i class="ri-error-warning-line"></i>';
+            messageElement.innerHTML = `${icon} ${message}`;
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                messageElement.innerHTML = '';
+                messageElement.className = '';
+            }, 5000);
+        }
+        
+        // Function to save trading settings
+        function saveTradingSettings(event) {
+            event.preventDefault();
+            
+            const settings = {
+                default_quantity: parseInt(document.getElementById('defaultQuantity').value),
+                max_trade_value: parseInt(document.getElementById('maxTradeValue').value),
+                stop_loss_percent: parseFloat(document.getElementById('stopLossPercent').value),
+                target_percent: parseFloat(document.getElementById('targetPercent').value)
+            };
+            
+            fetch('/settings/trading', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(settings)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showTradingSettingsMessage('success', 'Trading settings saved successfully');
+                } else {
+                    showTradingSettingsMessage('error', 'Failed to save settings: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error saving trading settings:', error);
+                showTradingSettingsMessage('error', 'Error saving settings. Please try again.');
+            });
+        }
+        
+        // Function to save telegram settings
+        function saveTelegramSettings(event) {
+            event.preventDefault();
+            
+            const settings = {
+                telegram_bot_token: document.getElementById('telegramBotToken').value,
+                telegram_chat_id: document.getElementById('telegramChatId').value
+            };
+            
+            fetch('/settings/telegram', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(settings)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showTelegramSettingsMessage('success', 'Telegram settings saved successfully');
+                } else {
+                    showTelegramSettingsMessage('error', 'Failed to save settings: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error saving telegram settings:', error);
+                showTelegramSettingsMessage('error', 'Error saving settings. Please try again.');
+            });
+        }
+        
+        // Function to test telegram notification
+        function testTelegramNotification() {
+            fetch('/settings/telegram/test', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showTelegramSettingsMessage('success', 'Test notification sent successfully');
+                } else {
+                    showTelegramSettingsMessage('error', 'Failed to send test notification: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error sending test notification:', error);
+                showTelegramSettingsMessage('error', 'Error sending test notification. Please try again.');
+            });
+        }
+        
+        // Function to reset trading settings to defaults
+        function resetTradingSettings() {
+            document.getElementById('defaultQuantity').value = '1';
+            document.getElementById('maxTradeValue').value = '5000';
+            document.getElementById('stopLossPercent').value = '2';
+            document.getElementById('targetPercent').value = '4';
+            
+            showTradingSettingsMessage('success', 'Trading settings reset to defaults');
+        }
+        
+        // Initialize everything when the page loads
         document.addEventListener('DOMContentLoaded', function() {
-            checkAuth();
-            loadSettings();
+            updateAuthStatus();
+            loadTradingSettings();
+            loadTelegramSettings();
+            
+            // Set up form submission handlers
+            document.getElementById('trading-settings-form').addEventListener('submit', saveTradingSettings);
+            document.getElementById('telegram-settings-form').addEventListener('submit', saveTelegramSettings);
+            
+            // Set up button handlers
+            document.getElementById('test-telegram').addEventListener('click', testTelegramNotification);
+            document.getElementById('reset-trading-settings').addEventListener('click', resetTradingSettings);
         });
     </script>
 </body>

@@ -3,87 +3,171 @@
 <head>
     <title>ChartInk Alerts</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
     <style>
+        :root {
+            --primary: #3a7bd5;
+            --primary-light: #6ea8fe;
+            --primary-dark: #2d67b2;
+            --primary-gradient: linear-gradient(120deg, #3a7bd5, #00d2ff);
+            --success: #28a745;
+            --success-light: #d1f0db;
+            --success-gradient: linear-gradient(120deg, #28a745, #98ec2d);
+            --danger: #dc3545;
+            --danger-light: #f8d7da;
+            --danger-gradient: linear-gradient(120deg, #dc3545, #ff6a78);
+            --warning: #ffc107;
+            --info: #17a2b8;
+            --dark: #2c3e50;
+            --light: #f8f9fa;
+            --muted: #6c757d;
+            --border: #eaeaea;
+            --shadow-sm: 0 2px 4px rgba(0,0,0,0.05);
+            --shadow: 0 4px 15px rgba(0,0,0,0.08);
+            --shadow-lg: 0 10px 25px rgba(0,0,0,0.1);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --font-main: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
         body { 
-            font-family: 'Segoe UI', Arial, sans-serif; 
+            font-family: var(--font-main); 
             margin: 0; 
             padding: 0; 
             background-color: #f8f9fa;
-            color: #333;
+            color: var(--dark);
+            line-height: 1.5;
         }
+        
+        /* Modern glass-like container */
         .container { 
             max-width: 1200px; 
             margin: 0 auto; 
-            background-color: #fff;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            background-color: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
             padding: 25px;
             margin-top: 20px;
             margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
+        
+        /* Modern navbar with gradient */
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 25px;
-            border-bottom: 1px solid #eaeaea;
+            border-bottom: 1px solid var(--border);
             padding-bottom: 15px;
+            position: relative;
+            overflow: hidden;
         }
+        
+        .header h1 {
+            position: relative;
+            z-index: 1;
+            color: var(--dark);
+            font-weight: 700;
+            font-size: 28px;
+            margin: 0;
+        }
+        
         .nav {
             display: flex;
-            gap: 20px;
+            gap: 5px;
+            position: relative;
+            z-index: 1;
         }
+        
         .nav a {
             text-decoration: none;
-            color: #3a7bd5;
+            color: var(--primary);
             font-weight: 600;
-            padding: 8px 12px;
-            border-radius: 6px;
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
             transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
+        
+        .nav a i {
+            font-size: 18px;
+        }
+        
         .nav a:hover {
-            background-color: #f0f4ff;
+            background-color: rgba(58, 123, 213, 0.1);
+            transform: translateY(-2px);
         }
+        
         .card {
             background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            padding: 15px;
+            border-radius: var(--radius-sm);
+            box-shadow: var(--shadow-sm);
+            padding: 20px;
             margin-bottom: 20px;
-            border-left: 4px solid #3a7bd5;
+            border-left: 4px solid var(--primary);
         }
+        
         .section {
             margin-bottom: 30px;
         }
-        h1 {
-            color: #2c3e50;
-            font-weight: 600;
-        }
+        
         h2 {
             margin-top: 0;
-            color: #2c3e50;
-            font-weight: 500;
-            border-bottom: 2px solid #eaeaea;
+            color: var(--dark);
+            font-weight: 700;
+            border-bottom: 2px solid var(--border);
             padding-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
+        
+        h2 i {
+            font-size: 24px;
+            color: var(--primary);
+        }
+        
+        /* Modern alert cards */
         .alert-card {
             background-color: #fff;
-            border-radius: 8px;
+            border-radius: var(--radius-sm);
             padding: 20px;
             margin-bottom: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            transition: transform 0.2s ease;
-            border-left: 4px solid #6c757d;
+            box-shadow: var(--shadow-sm);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--border);
         }
+        
         .alert-card:hover {
-            transform: translateY(-2px);
+            transform: translateY(-5px);
+            box-shadow: var(--shadow);
         }
-        .alert-card.buy {
-            border-left-color: #28a745;
+        
+        .alert-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background-color: var(--muted);
         }
-        .alert-card.sell {
-            border-left-color: #dc3545;
+        
+        .alert-card.buy::before {
+            background: var(--success-gradient);
         }
+        
+        .alert-card.sell::before {
+            background: var(--danger-gradient);
+        }
+        
         .alert-header {
             display: flex;
             justify-content: space-between;
@@ -91,114 +175,197 @@
             font-weight: 600;
             margin-bottom: 15px;
             padding-bottom: 10px;
-            border-bottom: 1px solid #eaeaea;
+            border-bottom: 1px solid var(--border);
         }
+        
         .alert-time {
-            color: #6c757d;
+            color: var(--muted);
             font-size: 14px;
             font-weight: normal;
-        }
-        .refresh-btn {
-            background-color: #3a7bd5;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            transition: background-color 0.2s ease;
             display: flex;
             align-items: center;
             gap: 5px;
         }
-        .refresh-btn:hover {
-            background-color: #2d67b2;
+        
+        .alert-time i {
+            font-size: 16px;
         }
-        .buy {
-            color: #28a745;
+        
+        /* Modern buttons */
+        .btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 5px;
         }
-        .sell {
-            color: #dc3545;
+        
+        .btn:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-sm);
         }
+        
+        .btn i {
+            font-size: 18px;
+        }
+        
+        /* Empty state */
         .empty-state {
             text-align: center;
             padding: 40px;
-            color: #6c757d;
+            color: var(--muted);
             background-color: #f9fafb;
-            border-radius: 8px;
+            border-radius: var(--radius-sm);
             border: 1px dashed #dee2e6;
         }
+        
+        .empty-state i {
+            font-size: 48px;
+            margin-bottom: 10px;
+            opacity: 0.5;
+        }
+        
+        /* Status indicators */
+        .auth-status {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 20px;
+            border-radius: var(--radius-sm);
+            margin-bottom: 25px;
+            transition: all 0.3s ease;
+        }
+        
+        .auth-success {
+            background-color: var(--success-light);
+            border-left: 4px solid var(--success);
+        }
+        
+        .auth-error {
+            background-color: var(--danger-light);
+            border-left: 4px solid var(--danger);
+        }
+        
+        .auth-status i {
+            font-size: 24px;
+        }
+        
+        .auth-success i {
+            color: var(--success);
+        }
+        
+        .auth-error i {
+            color: var(--danger);
+        }
+        
+        /* Modern badges */
+        .alert-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+            gap: 4px;
+        }
+        
+        .buy-badge {
+            background-color: var(--success-light);
+            color: var(--success);
+        }
+        
+        .sell-badge {
+            background-color: var(--danger-light);
+            color: var(--danger);
+        }
+        
+        /* Stock list */
         .stock-list {
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
             margin-top: 15px;
         }
+        
         .stock-item {
             background-color: #f8f9fa;
-            border-radius: 6px;
-            border: 1px solid #eaeaea;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
             padding: 8px 12px;
             display: flex;
             align-items: center;
             transition: all 0.2s ease;
         }
+        
         .stock-item:hover {
             background-color: #f0f4ff;
             border-color: #d0d9e6;
+            transform: translateY(-2px);
         }
+        
         .stock-symbol {
             font-weight: 600;
             margin-right: 8px;
         }
+        
         .stock-price {
             font-size: 14px;
-            color: #495057;
+            color: var(--muted);
         }
+        
         .alert-meta {
             margin: 10px 0;
-            color: #495057;
+            color: var(--muted);
+            padding: 10px;
+            background-color: rgba(0,0,0,0.02);
+            border-radius: var(--radius-sm);
         }
+        
         .alert-meta-item {
             margin-bottom: 5px;
-        }
-        .auth-status {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 5px;
         }
-        .auth-icon {
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 12px;
+        
+        .alert-meta-item i {
+            font-size: 16px;
+            color: var(--primary);
         }
-        .auth-success {
-            background-color: #28a745;
-        }
-        .auth-error {
-            background-color: #dc3545;
-        }
-        .alert-badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-            margin-left: 10px;
-        }
-        .buy-badge {
-            background-color: rgba(40, 167, 69, 0.1);
-            color: #28a745;
-        }
-        .sell-badge {
-            background-color: rgba(220, 53, 69, 0.1);
-            color: #dc3545;
+        
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+                margin: 10px;
+                border-radius: var(--radius-sm);
+            }
+            
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            
+            .nav {
+                width: 100%;
+                overflow-x: auto;
+                padding-bottom: 5px;
+            }
+            
+            .stock-list {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            }
         }
     </style>
 </head>
@@ -207,23 +374,26 @@
         <div class="header">
             <h1>ChartInk Alerts</h1>
             <div class="nav">
-                <a href="/auth/refresh">Authentication</a>
-                <a href="/">Dashboard</a>
-                <a href="/auth/settings">Settings</a>
+                <a href="/auth/refresh"><i class="ri-login-circle-line"></i> Authentication</a>
+                <a href="/"><i class="ri-dashboard-line"></i> Dashboard</a>
+                <a href="/auth/settings"><i class="ri-settings-3-line"></i> Settings</a>
             </div>
         </div>
 
-        <div id="auth-status" class="card"></div>
+        <div id="auth-status"></div>
         
         <div class="section">
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h2>Today's Alerts</h2>
-                <button id="refresh-alerts" class="refresh-btn">
-                    <span>Refresh</span>
+                <h2><i class="ri-notification-3-line"></i> Today's Alerts</h2>
+                <button id="refresh-alerts" class="btn">
+                    <i class="ri-refresh-line"></i> Refresh
                 </button>
             </div>
             <div id="alerts-container">
-                <div class="empty-state">Loading alerts...</div>
+                <div class="empty-state">
+                    <i class="ri-notification-4-line"></i>
+                    <p>Loading alerts...</p>
+                </div>
             </div>
         </div>
     </div>
@@ -248,8 +418,8 @@
                     else {
                         const cacheTime = new Date(cache.timestamp);
                         const now = new Date();
-                        // Use cache if less than 5 minutes old
-                        if (now - cacheTime < 5 * 60 * 1000) {
+                        // If cache is less than 5 minutes old, use it
+                        if ((now.getTime() - cacheTime.getTime()) < 5 * 60 * 1000) {
                             return cache.data;
                         }
                     }
@@ -260,190 +430,171 @@
             return null;
         }
         
-        function setAuthStatusCache(data) {
-            localStorage.setItem('authStatus', JSON.stringify({
-                data: data,
-                timestamp: new Date()
-            }));
-        }
-        
-        // Check authentication status
-        function checkAuth(forceRefresh = false) {
-            // Check if we have a valid cached auth status
-            const cachedStatus = !forceRefresh && getAuthStatusFromCache();
+        // Function to display authentication status
+        function updateAuthStatus() {
+            // Try to get from cache first
+            const cachedStatus = getAuthStatusFromCache();
             if (cachedStatus) {
-                updateAuthUI(cachedStatus);
-                return Promise.resolve(cachedStatus);
+                renderAuthStatus(cachedStatus);
+                return;
             }
             
-            // Otherwise fetch from server
-            return fetch('/auth/status')
+            // If not in cache, fetch from server
+            fetch('/auth/status')
                 .then(response => response.json())
                 .then(data => {
-                    setAuthStatusCache(data);
-                    updateAuthUI(data);
-                    return data;
+                    renderAuthStatus(data);
+                    
+                    // Cache the result
+                    localStorage.setItem('authStatus', JSON.stringify({
+                        data: data,
+                        timestamp: new Date().toISOString()
+                    }));
                 })
                 .catch(error => {
-                    console.error('Error:', error);
+                    console.error('Error fetching auth status:', error);
                     document.getElementById('auth-status').innerHTML = `
-                        <div class="auth-status">
-                            <div class="auth-icon auth-error">✗</div>
-                            <div>Error checking authentication status.</div>
-                        </div>`;
-                    return { authenticated: false };
+                        <div class="auth-status auth-error">
+                            <i class="ri-error-warning-line"></i>
+                            <div>
+                                <div><strong>Error checking authentication status</strong></div>
+                                <div>Please try <a href="/auth/refresh">refreshing your authentication</a>.</div>
+                            </div>
+                        </div>
+                    `;
                 });
         }
         
-        function updateAuthUI(data) {
-            let statusDiv = document.getElementById('auth-status');
-            
+        // Function to render auth status
+        function renderAuthStatus(data) {
+            const authStatusDiv = document.getElementById('auth-status');
             if (data.authenticated) {
-                statusDiv.innerHTML = `
-                    <div class="auth-status">
-                        <div class="auth-icon auth-success">✓</div>
+                authStatusDiv.innerHTML = `
+                    <div class="auth-status auth-success">
+                        <i class="ri-check-double-line"></i>
                         <div>
-                            <strong>${data.user}</strong> | Last login: ${formatAuthTimestamp(data.last_login)}
+                            <div><strong>Currently logged in as: ${data.user_name}</strong></div>
+                            <div>Authentication valid until: ${data.expiry}</div>
                         </div>
-                    </div>`;
+                    </div>
+                `;
             } else {
-                statusDiv.innerHTML = `
-                    <div class="auth-status">
-                        <div class="auth-icon auth-error">✗</div>
+                authStatusDiv.innerHTML = `
+                    <div class="auth-status auth-error">
+                        <i class="ri-error-warning-line"></i>
                         <div>
-                            Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to view your alerts.
+                            <div><strong>Not authenticated with Zerodha</strong></div>
+                            <div>Please <a href="/auth/refresh">login to Zerodha</a> to continue.</div>
                         </div>
-                    </div>`;
+                    </div>
+                `;
             }
         }
         
-        // Format timestamp for display
-        function formatAuthTimestamp(timestamp) {
-            try {
-                const date = new Date(timestamp);
-                return date.toLocaleString('en-IN', {
-                    day: '2-digit',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true
-                });
-            } catch (e) {
-                return timestamp;
-            }
-        }
-        
-        // Format alert timestamp
-        function formatAlertTimestamp(isoTimestamp) {
-            try {
-                const date = new Date(isoTimestamp);
-                return date.toLocaleString('en-IN', {
-                    day: '2-digit',
-                    month: 'short',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    hour12: true
-                });
-            } catch (e) {
-                return 'N/A';
-            }
-        }
-        
-        // Fetch alerts
+        // Function to fetch and display alerts
         function fetchAlerts() {
-            document.getElementById('alerts-container').innerHTML = '<div class="empty-state">Loading alerts...</div>';
+            const alertsContainer = document.getElementById('alerts-container');
+            alertsContainer.innerHTML = `
+                <div class="empty-state">
+                    <i class="ri-loader-4-line"></i>
+                    <p>Loading alerts...</p>
+                </div>
+            `;
             
-            checkAuth().then(data => {
-                if (!data.authenticated) {
-                    document.getElementById('alerts-container').innerHTML = '<div class="empty-state">Please login to view alerts</div>';
-                    return;
-                }
-                
-                fetch('/api/alerts')
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.status === 'success') {
-                            const alerts = data.data;
+            fetch('/alerts/list')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.alerts && data.alerts.length > 0) {
+                        alertsContainer.innerHTML = '';
+                        
+                        data.alerts.forEach(alert => {
+                            // Determine if this is a buy or sell alert based on scan name
+                            const isBuyAlert = alert.scan_name.toLowerCase().includes('buy') || 
+                                    alert.scan_name.toLowerCase().includes('bullish') || 
+                                    alert.scan_name.toLowerCase().includes('breakout');
                             
-                            if (alerts.length === 0) {
-                                document.getElementById('alerts-container').innerHTML = '<div class="empty-state">No alerts received today</div>';
-                                return;
-                            }
+                            const alertType = isBuyAlert ? 'buy' : 'sell';
+                            const alertIcon = isBuyAlert ? 'ri-arrow-up-circle-line' : 'ri-arrow-down-circle-line';
                             
-                            let alertsHtml = '';
+                            const alertCard = document.createElement('div');
+                            alertCard.className = `alert-card ${alertType}`;
                             
-                            // Sort alerts by timestamp in descending order (newest first)
-                            alerts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-                            
-                            alerts.forEach(alert => {
-                                // Determine if it's a buy or sell signal based on scan name
-                                const scanLower = alert.scan_name.toLowerCase();
-                                const isBuy = scanLower.includes('buy') || scanLower.includes('bullish') || scanLower.includes('breakout');
-                                const isSell = scanLower.includes('sell') || scanLower.includes('bearish') || scanLower.includes('short');
-                                const signalClass = isBuy ? 'buy' : (isSell ? 'sell' : '');
-                                const cardClass = isBuy ? 'buy' : (isSell ? 'sell' : '');
-                                const badgeClass = isBuy ? 'buy-badge' : (isSell ? 'sell-badge' : '');
-                                const badgeText = isBuy ? 'BUY SIGNAL' : (isSell ? 'SELL SIGNAL' : 'ALERT');
-                                
-                                // Convert ISO timestamp to readable format
-                                const alertTime = formatAlertTimestamp(alert.timestamp);
-                                
-                                // Get stocks and prices
-                                const stocks = alert.stocks.split(',');
-                                const prices = alert.trigger_prices.split(',');
-                                
-                                // Create HTML for stocks list
-                                let stocksHtml = '<div class="stock-list">';
-                                for (let i = 0; i < stocks.length; i++) {
-                                    if (stocks[i].trim()) {
-                                        stocksHtml += `
-                                            <div class="stock-item">
-                                                <span class="stock-symbol">${stocks[i].trim()}</span>
-                                                <span class="stock-price">₹${prices[i] ? prices[i].trim() : 'N/A'}</span>
-                                            </div>
-                                        `;
-                                    }
-                                }
-                                stocksHtml += '</div>';
-                                
-                                alertsHtml += `
-                                    <div class="alert-card ${cardClass}">
-                                        <div class="alert-header">
-                                            <div class="${signalClass}">
-                                                ${alert.scan_name}
-                                                <span class="alert-badge ${badgeClass}">${badgeText}</span>
-                                            </div>
-                                            <div class="alert-time">${alertTime}</div>
-                                        </div>
-                                        <div class="alert-meta">
-                                            <div class="alert-meta-item">Alert: ${alert.alert_name}</div>
-                                            <div class="alert-meta-item">Triggered at: ${alert.triggered_at}</div>
-                                        </div>
-                                        ${stocksHtml}
-                                    </div>
-                                `;
+                            // Convert stock strings to arrays
+                            const stocks = alert.stocks.split(',');
+                            const prices = alert.trigger_prices.split(',');
+                            const stocksWithPrices = stocks.map((stock, index) => {
+                                return {
+                                    symbol: stock.trim(),
+                                    price: prices[index] ? prices[index].trim() : 'N/A'
+                                };
                             });
                             
-                            document.getElementById('alerts-container').innerHTML = alertsHtml;
-                        } else {
-                            document.getElementById('alerts-container').innerHTML = `<div class="empty-state">Error: ${data.message}</div>`;
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                        document.getElementById('alerts-container').innerHTML = '<div class="empty-state">Error fetching alerts</div>';
-                    });
-            });
+                            const badgeClass = isBuyAlert ? 'buy-badge' : 'sell-badge';
+                            const badgeIcon = isBuyAlert ? 'ri-arrow-up-line' : 'ri-arrow-down-line';
+                            const badgeText = isBuyAlert ? 'BUY' : 'SELL';
+                            
+                            alertCard.innerHTML = `
+                                <div class="alert-header">
+                                    <div>
+                                        ${alert.scan_name}
+                                        <span class="alert-badge ${badgeClass}">
+                                            <i class="${badgeIcon}"></i> ${badgeText}
+                                        </span>
+                                    </div>
+                                    <div class="alert-time">
+                                        <i class="ri-time-line"></i> ${alert.triggered_at}
+                                    </div>
+                                </div>
+                                
+                                <div class="alert-meta">
+                                    <div class="alert-meta-item">
+                                        <i class="ri-radar-line"></i>
+                                        <span>Scanner: ${alert.scan_name}</span>
+                                    </div>
+                                    <div class="alert-meta-item">
+                                        <i class="ri-alarm-line"></i>
+                                        <span>Alert: ${alert.alert_name || 'ChartInk Alert'}</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="stock-list">
+                                    ${stocksWithPrices.map(stock => `
+                                        <div class="stock-item">
+                                            <span class="stock-symbol">${stock.symbol}</span>
+                                            <span class="stock-price">₹${stock.price}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `;
+                            
+                            alertsContainer.appendChild(alertCard);
+                        });
+                    } else {
+                        alertsContainer.innerHTML = `
+                            <div class="empty-state">
+                                <i class="ri-notification-off-line"></i>
+                                <p>No alerts received today. ChartInk alerts will appear here when triggered.</p>
+                            </div>
+                        `;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching alerts:', error);
+                    alertsContainer.innerHTML = `
+                        <div class="empty-state">
+                            <i class="ri-error-warning-line"></i>
+                            <p>Error loading alerts. Please check your authentication.</p>
+                        </div>
+                    `;
+                });
         }
         
-        // Initial load
+        // Initialize everything when the page loads
         document.addEventListener('DOMContentLoaded', function() {
-            checkAuth();
+            updateAuthStatus();
             fetchAlerts();
             
-            // Set up refresh button
+            // Set up refresh button handler
             document.getElementById('refresh-alerts').addEventListener('click', fetchAlerts);
         });
     </script>
