@@ -229,44 +229,84 @@ def place_order(symbol, transaction_type, quantity, order_type="MARKET", price=0
         logger.error(f"Order placement failed: {e}")
         return None
 
-def process_chartink_alert(alert_data):
-    """
-    Process the ChartInk scanner alert.
-    ChartInk sends data in the following format:
-    {
-        "stocks": "STOCK1,STOCK2,STOCK3",
-        "trigger_prices": "100.5,200.5,300.5",
-        "triggered_at": "2:34 pm",
-        "scan_name": "Short term breakouts",
-        "scan_url": "short-term-breakouts",
-        "alert_name": "Alert for Short term breakouts"
-    }
-    """
+def process_chartink_alert(data):
+    """Process the alert from ChartInk"""
     try:
-        # Add timestamp to the alert data
-        alert_data["timestamp"] = datetime.now().isoformat()
+        # Extract data
+        stocks = data.get('stocks', '').split(',')
+        prices = data.get('trigger_prices', '').split(',')
+        scan_name = data.get('scan_name', '')
+        scan_url = data.get('scan_url', '')
+        alert_name = data.get('alert_name', '')
+        triggered_at = data.get('triggered_at', '')
+        action = data.get('action', '').upper()
         
-        # Store the alert
+        # Add timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Store alert in memory
+        alert_data = {
+            'scan_name': scan_name,
+            'scan_url': scan_url,
+            'alert_name': alert_name,
+            'stocks': stocks,
+            'prices': prices,
+            'triggered_at': triggered_at,
+            'timestamp': timestamp
+        }
+        
+        # Determine if it's a buy or sell signal
+        # Check explicit action field first
+        if action == 'BUY':
+            is_buy = True
+        elif action == 'SELL':
+            is_buy = False
+        else:
+            # Look for buy/sell keywords in scan and alert names
+            buy_keywords = ['buy', 'bull', 'bullish', 'long', 'breakout', 'up', 'uptrend', 'support', 'bounce', 'reversal', 'upside']
+            sell_keywords = ['sell', 'bear', 'bearish', 'short', 'breakdown', 'down', 'downtrend', 'resistance', 'fall', 'decline']
+            
+            scan_text = (scan_name + ' ' + alert_name).lower()
+            
+            # Check if any buy keywords are in the scan text
+            if any(keyword in scan_text for keyword in buy_keywords):
+                is_buy = True
+            # Check if any sell keywords are in the scan text
+            elif any(keyword in scan_text for keyword in sell_keywords):
+                is_buy = False
+            # Default to buy if no keywords match
+            else:
+                is_buy = True
+                logger.info(f"No buy/sell keywords found in scan text, defaulting to BUY")
+        
+        # Add action to the stored alert
+        transaction_type = 'BUY' if is_buy else 'SELL'
+        alert_data['action'] = transaction_type
         received_alerts.append(alert_data)
         
-        # Notify via Telegram
-        telegram.notify_chartink_alert(alert_data)
-        
-        # Extract data from the alert
-        stocks = alert_data.get('stocks', '').split(',')
-        prices = alert_data.get('trigger_prices', '').split(',')
-        triggered_at = alert_data.get('triggered_at', '')
-        scan_name = alert_data.get('scan_name', '')
-        scan_url = alert_data.get('scan_url', '')
-        alert_name = alert_data.get('alert_name', '')
-        
+        # Log alert info
         logger.info(f"Received alert from scanner '{scan_name}' at {triggered_at}")
         logger.info(f"Stocks: {stocks}")
         logger.info(f"Prices: {prices}")
         
+        # Notify via Telegram
+        try:
+            message = f"⚠️ *New {alert_data['action']} Alert:* {alert_name}\n" \
+                     f"*Strategy:* {scan_name}\n" \
+                     f"*Triggered at:* {triggered_at}\n\n" \
+                     f"*Stocks:*\n"
+            
+            for i, (stock, price) in enumerate(zip(stocks, prices)):
+                if i < len(prices):
+                    message += f"- {stock}: ₹{price}\n"
+            
+            telegram.send_notification(message)
+        except Exception as e:
+            logger.error(f"Failed to send Telegram notification: {e}")
+        
         # Validate required data
         if not stocks or not prices or len(stocks) != len(prices):
-            logger.error(f"Invalid alert data: {alert_data}")
+            logger.error(f"Invalid alert data: {data}")
             return False
         
         success_count = 0
@@ -280,13 +320,6 @@ def process_chartink_alert(alert_data):
                 
             try:
                 price = float(prices[i].strip())
-                
-                # Determine transaction type based on scan name
-                # Assuming "breakout" or "buy" in scan name means BUY, otherwise SELL
-                scan_lower = scan_name.lower()
-                transaction_type = "BUY"
-                if "sell" in scan_lower or "short" in scan_lower or "bearish" in scan_lower:
-                    transaction_type = "SELL"
                 
                 logger.info(f"Processing {stock} with {transaction_type} at price {price}")
                 

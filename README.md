@@ -1,6 +1,17 @@
 # Zerodha Kite API Integration with ChartInk
 
-This project connects to Zerodha Kite API to fetch user profile, margin details, order history, and current positions. It also includes a webhook server that receives ChartInk scanner alerts and automatically executes trades.
+This project connects to Zerodha Kite API to fetch user profile, margin details, order history, and current positions. It includes a complete trading dashboard, alerts tracking, and a webhook server that receives ChartInk scanner alerts and automatically executes trades.
+
+## Features
+
+- **Complete Trading Dashboard** - Monitor positions, orders, and account balances
+- **Alerts Tracking** - View ChartInk alerts history with formatting for buy/sell signals
+- **Settings Management** - Configure trading parameters and notification settings
+- **Telegram Notifications** - Receive instant alerts for trades, signals, and authentication status
+- **Authentication System** - Login, token management, and session handling
+- **Automated Trading** - Execute trades automatically based on ChartInk alerts
+- **Order Management** - Place orders with stop-loss and target levels
+- **Enhanced Signal Detection** - Advanced keyword detection for buy/sell signals
 
 ## Setup
 
@@ -31,11 +42,20 @@ This project connects to Zerodha Kite API to fetch user profile, margin details,
    APP_URL=https://your-railway-app-url.up.railway.app
    REDIRECT_URL=https://your-railway-app-url.up.railway.app/auth/redirect
    
-   # Optional: Notification (ntfy.sh)
+   # Telegram Notifications (Optional)
+   TELEGRAM_BOT_TOKEN=your_bot_token_here
+   TELEGRAM_CHAT_ID=your_chat_id_here
+   
+   # Optional: Backup Notification (ntfy.sh)
    NTFY_TOPIC=your-notification-channel
    ```
 
    You need to obtain your API key and secret from the [Zerodha Kite Developer Console](https://kite.trade/).
+
+3. For Telegram notifications:
+   - Create a Telegram bot via [BotFather](https://t.me/BotFather)
+   - Get your chat ID (use [@userinfobot](https://t.me/userinfobot) or create a group and add [@RawDataBot](https://t.me/RawDataBot))
+   - Add the bot token and chat ID to your .env file
 
 ### Railway Deployment
 
@@ -52,6 +72,7 @@ This project connects to Zerodha Kite API to fetch user profile, margin details,
    - Make sure to set:
      - `APP_URL`: Your Railway app URL
      - `REDIRECT_URL`: Your Railway app URL + "/auth/redirect"
+     - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (if using Telegram)
 
 4. Set Up Zerodha App:
    - Go to [Zerodha Developer Console](https://developers.kite.trade/apps)
@@ -65,32 +86,14 @@ This project connects to Zerodha Kite API to fetch user profile, margin details,
 
 ## Usage
 
-### Kite Connection
+### Dashboard and Web Interface
 
-When running locally, you can use the command-line interface:
-```
-python kite_connect.py
-```
+Once deployed (or running locally), you can access the full application at your app URL:
 
-The script will:
-1. Check if you're already authenticated with a valid access token
-2. If not, it will open the Zerodha login page in your browser
-3. After login, you need to paste the redirect URL back into the console
-4. The script will then fetch and display your profile information, margin details, positions, and order history
-
-### ChartInk Webhook Server
-
-Run the webhook server:
-```
-python chartink_webhook.py
-```
-
-The server will:
-1. Start a Flask server on the port specified in your `.env` file
-2. Check if a valid Kite API token exists
-3. Start a scheduler to periodically validate the token
-4. Listen for incoming webhook alerts from ChartInk
-5. Process alerts and execute trades based on the alert data
+- **Dashboard** (`/` or `/auth/dashboard.html`) - View positions, orders, and account balances
+- **Alerts** (`/auth/alerts.html`) - Track ChartInk alert history
+- **Settings** (`/auth/settings.html`) - Configure trading and notification parameters
+- **Authentication** (`/auth/refresh.html`) - Login to Zerodha and manage tokens
 
 ### Setting up ChartInk
 
@@ -114,48 +117,43 @@ ChartInk will send alerts in the following format:
 }
 ```
 
-The script automatically determines whether to buy or sell based on the scan name. If the scan name contains words like "buy" or "breakout", it will place buy orders. If it contains words like "sell", "short", or "bearish", it will place sell orders.
+### Advanced Signal Detection
+
+The application automatically determines whether to buy or sell based on keywords in the scan and alert names. Recognized keywords include:
+
+**Buy Keywords**: "buy", "bull", "bullish", "long", "breakout", "up", "uptrend", "support", "bounce", "reversal", "upside"
+
+**Sell Keywords**: "sell", "bear", "bearish", "short", "breakdown", "down", "downtrend", "resistance", "fall", "decline"
+
+You can also explicitly set the action by including `"action":"BUY"` or `"action":"SELL"` in your webhook payload.
 
 ### Token Refresh
 
 Zerodha tokens expire at 6 AM IST every day. To refresh your token:
 
-1. **Web Interface (Recommended)**
-   - Visit your app URL (for Railway deployment) or http://localhost:5000 (for local development)
+1. **Web Interface**
+   - Visit the authentication page at `/auth/refresh.html`
    - Click "Login to Zerodha" button
    - Complete the Zerodha login flow
    - Your token will be updated and ready to use
 
 2. **Automatic Notification**
-   - If you set up the NTFY_TOPIC environment variable
-   - You'll receive a notification when your token expires
+   - You'll receive a Telegram notification when your token expires
    - Click the link in the notification to refresh your token
 
-### Testing the Webhook
+## Testing the Webhook
 
-You can simulate ChartInk alerts using the included script:
+You can simulate ChartInk alerts using tools like Postman or curl:
+
+```bash
+curl -X POST https://your-app-url/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"stocks":"RELIANCE,INFY,TCS","trigger_prices":"2500,1800,3500","scan_name":"Bullish Breakout","triggered_at":"3:45 pm","alert_name":"Breakout Alert"}'
 ```
-python simulate_chartink_alert.py --stocks "RELIANCE,INFY,TCS" --prices "2500,1800,3500" --scan_name "Bullish Breakout"
-```
 
-This will send a test alert to your webhook server with multiple stocks and their trigger prices.
+## Next Steps
 
-## Features
-
-- Authentication and access token generation
-- Auto token validation and refresh notifications
-- Web interface for one-click token refresh
-- Fetching user profile information
-- Retrieving margin and fund details
-- Getting order history
-- Fetching current positions
-- Logout functionality to invalidate the session
-- Webhook server for receiving ChartInk alerts
-- Processing of multiple stocks in a single alert
-- Automatic trade execution based on alerts
-- Stop-loss and target orders for trade management
-- Trade logging for tracking executed trades
-- Fully deployable to Railway with minimal configuration
+See [NEXT_STEPS.md](NEXT_STEPS.md) for the planned enhancements and future roadmap.
 
 ## Documentation
 
@@ -163,4 +161,7 @@ This will send a test alert to your webhook server with multiple stocks and thei
   https://kite.trade/docs/connect/v3/
   
 - For information about ChartInk webhooks, visit:
-  https://chartink.com/articles/alerts/webhook-support-for-alerts/ 
+  https://chartink.com/articles/alerts/webhook-support-for-alerts/
+  
+- For Telegram Bot API documentation:
+  https://core.telegram.org/bots/api 
