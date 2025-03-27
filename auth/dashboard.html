@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trading Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            background-color: #f5f5f5;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .nav {
+            display: flex;
+            gap: 15px;
+        }
+        .nav a {
+            text-decoration: none;
+            color: #387ed1;
+            font-weight: bold;
+        }
+        .card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background-color: #f8f8f8;
+            font-weight: bold;
+        }
+        tr:hover {
+            background-color: #f9f9f9;
+        }
+        .profit {
+            color: green;
+        }
+        .loss {
+            color: red;
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .summary-card {
+            background-color: #f8f8f8;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        .summary-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .green-bg {
+            background-color: #e6ffe6;
+        }
+        .red-bg {
+            background-color: #ffe6e6;
+        }
+        .blue-bg {
+            background-color: #e6f2ff;
+        }
+        .refresh-btn {
+            background-color: #387ed1;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .timestamp {
+            font-size: 12px;
+            color: #888;
+            text-align: right;
+            margin-top: 5px;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Trading Dashboard</h1>
+            <div class="nav">
+                <a href="/auth/refresh">Authentication</a>
+                <a href="/auth/alerts">Alerts</a>
+                <a href="/auth/settings">Settings</a>
+            </div>
+        </div>
+
+        <div id="auth-status" class="card"></div>
+        
+        <div class="section">
+            <div class="summary-grid">
+                <div class="summary-card blue-bg">
+                    <div>Available Margin</div>
+                    <div id="available-margin" class="summary-value">₹0.00</div>
+                </div>
+                <div class="summary-card blue-bg">
+                    <div>Used Margin</div>
+                    <div id="used-margin" class="summary-value">₹0.00</div>
+                </div>
+                <div class="summary-card" id="pnl-card">
+                    <div>Today's P&L</div>
+                    <div id="today-pnl" class="summary-value">₹0.00</div>
+                </div>
+                <div class="summary-card blue-bg">
+                    <div>Open Positions</div>
+                    <div id="open-positions-count" class="summary-value">0</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>Current Positions</h2>
+                <button id="refresh-positions" class="refresh-btn">Refresh</button>
+            </div>
+            <div id="positions-container">
+                <div class="empty-state">Loading positions...</div>
+            </div>
+            <div class="timestamp" id="positions-timestamp"></div>
+        </div>
+        
+        <div class="section">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>Today's Orders</h2>
+                <button id="refresh-orders" class="refresh-btn">Refresh</button>
+            </div>
+            <div id="orders-container">
+                <div class="empty-state">Loading orders...</div>
+            </div>
+            <div class="timestamp" id="orders-timestamp"></div>
+        </div>
+    </div>
+
+    <script>
+        // Check authentication status
+        function checkAuth() {
+            fetch('/auth/status')
+                .then(response => response.json())
+                .then(data => {
+                    let statusDiv = document.getElementById('auth-status');
+                    
+                    if (data.authenticated) {
+                        statusDiv.innerHTML = `<p>✅ Logged in as: <strong>${data.user}</strong> | Last authenticated: ${data.last_login}</p>`;
+                    } else {
+                        statusDiv.innerHTML = '<p>❌ Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to view your positions and orders.</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('auth-status').innerHTML = '<p>❌ Error checking authentication status.</p>';
+                });
+        }
+        
+        // Fetch positions
+        function fetchPositions() {
+            document.getElementById('positions-container').innerHTML = '<div class="empty-state">Loading positions...</div>';
+            
+            fetch('/api/positions')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        const positions = data.data.net;
+                        
+                        if (positions.length === 0) {
+                            document.getElementById('positions-container').innerHTML = '<div class="empty-state">No open positions</div>';
+                            document.getElementById('open-positions-count').textContent = '0';
+                            return;
+                        }
+                        
+                        let totalPnl = 0;
+                        let tableHtml = `
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Symbol</th>
+                                        <th>Qty</th>
+                                        <th>Avg. Price</th>
+                                        <th>LTP</th>
+                                        <th>P&L</th>
+                                        <th>Type</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                        `;
+                        
+                        positions.forEach(position => {
+                            const pnl = position.pnl;
+                            totalPnl += pnl;
+                            
+                            tableHtml += `
+                                <tr>
+                                    <td>${position.tradingsymbol}</td>
+                                    <td>${position.quantity}</td>
+                                    <td>₹${position.average_price.toFixed(2)}</td>
+                                    <td>₹${position.last_price.toFixed(2)}</td>
+                                    <td class="${pnl >= 0 ? 'profit' : 'loss'}">₹${pnl.toFixed(2)}</td>
+                                    <td>${position.product}</td>
+                                </tr>
+                            `;
+                        });
+                        
+                        tableHtml += '</tbody></table>';
+                        document.getElementById('positions-container').innerHTML = tableHtml;
+                        document.getElementById('open-positions-count').textContent = positions.length;
+                        
+                        // Update P&L summary
+                        document.getElementById('today-pnl').textContent = `₹${totalPnl.toFixed(2)}`;
+                        const pnlCard = document.getElementById('pnl-card');
+                        if (totalPnl >= 0) {
+                            pnlCard.className = 'summary-card green-bg';
+                        } else {
+                            pnlCard.className = 'summary-card red-bg';
+                        }
+                        
+                        document.getElementById('positions-timestamp').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+                    } else {
+                        document.getElementById('positions-container').innerHTML = `<div class="empty-state">Error: ${data.message}</div>`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('positions-container').innerHTML = '<div class="empty-state">Error fetching positions</div>';
+                });
+        }
+        
+        // Fetch orders
+        function fetchOrders() {
+            document.getElementById('orders-container').innerHTML = '<div class="empty-state">Loading orders...</div>';
+            
+            fetch('/api/orders')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        const orders = data.data;
+                        
+                        if (orders.length === 0) {
+                            document.getElementById('orders-container').innerHTML = '<div class="empty-state">No orders placed today</div>';
+                            return;
+                        }
+                        
+                        let tableHtml = `
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Order ID</th>
+                                        <th>Symbol</th>
+                                        <th>Type</th>
+                                        <th>Qty</th>
+                                        <th>Price</th>
+                                        <th>Status</th>
+                                        <th>Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                        `;
+                        
+                        orders.forEach(order => {
+                            tableHtml += `
+                                <tr>
+                                    <td>${order.order_id}</td>
+                                    <td>${order.tradingsymbol}</td>
+                                    <td>${order.transaction_type}</td>
+                                    <td>${order.quantity}</td>
+                                    <td>${order.price > 0 ? '₹' + order.price.toFixed(2) : 'MARKET'}</td>
+                                    <td>${order.status}</td>
+                                    <td>${new Date(order.order_timestamp * 1000).toLocaleTimeString()}</td>
+                                </tr>
+                            `;
+                        });
+                        
+                        tableHtml += '</tbody></table>';
+                        document.getElementById('orders-container').innerHTML = tableHtml;
+                        document.getElementById('orders-timestamp').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+                    } else {
+                        document.getElementById('orders-container').innerHTML = `<div class="empty-state">Error: ${data.message}</div>`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('orders-container').innerHTML = '<div class="empty-state">Error fetching orders</div>';
+                });
+        }
+        
+        // Fetch margins
+        function fetchMargins() {
+            fetch('/api/margins')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        const equity = data.data.equity;
+                        document.getElementById('available-margin').textContent = `₹${equity.available.cash.toFixed(2)}`;
+                        document.getElementById('used-margin').textContent = `₹${equity.utilised.debits.toFixed(2)}`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+        }
+        
+        // Initial load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuth();
+            fetchPositions();
+            fetchOrders();
+            fetchMargins();
+            
+            // Set up refresh buttons
+            document.getElementById('refresh-positions').addEventListener('click', fetchPositions);
+            document.getElementById('refresh-orders').addEventListener('click', fetchOrders);
+        });
+    </script>
+</body>
+</html> 

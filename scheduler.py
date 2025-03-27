@@ -23,8 +23,15 @@ def trigger_login_notification():
     
     logger.info(f"Token expired. Login required at: {login_url}")
     
-    # You could add notification via email, Telegram, etc.
-    # For example, using a free service like ntfy.sh:
+    # Try to send Telegram notification if module is available
+    try:
+        from telegram_notifier import TelegramNotifier
+        telegram = TelegramNotifier()
+        telegram.notify_auth_status(False)
+    except Exception as e:
+        logger.error(f"Failed to send Telegram notification: {e}")
+    
+    # Also use ntfy.sh as a backup notification method
     ntfy_topic = os.getenv("NTFY_TOPIC", "")
     if ntfy_topic:
         try:

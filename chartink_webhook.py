@@ -6,6 +6,7 @@ from flask import Flask, request, jsonify, redirect, send_from_directory
 from dotenv import load_dotenv
 from kite_connect import KiteConnect
 from scheduler import start_scheduler
+from telegram_notifier import TelegramNotifier
 
 # Configure logging to output to console
 logging.basicConfig(
@@ -23,22 +24,39 @@ app = Flask(__name__)
 # Initialize Kite Connect
 kite = KiteConnect()
 
+# Initialize Telegram notifier
+telegram = TelegramNotifier()
+
 # Trading configuration
 DEFAULT_QUANTITY = int(os.getenv("DEFAULT_QUANTITY", 1))
 MAX_TRADE_VALUE = float(os.getenv("MAX_TRADE_VALUE", 5000))
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", 2))
 TARGET_PERCENT = float(os.getenv("TARGET_PERCENT", 4))
 
+# Store received alerts in memory (cleared on restart)
+# In production, consider using a database
+received_alerts = []
+
 # Authentication routes
 @app.route('/')
 def index():
-    """Home page"""
-    return redirect('/auth/refresh')
+    """Dashboard page"""
+    return send_from_directory('auth', 'dashboard.html')
 
 @app.route('/auth/refresh')
 def auth_refresh():
     """Show the token refresh page"""
     return send_from_directory('auth', 'refresh.html')
+
+@app.route('/auth/alerts')
+def alerts_page():
+    """Show the alerts page"""
+    return send_from_directory('auth', 'alerts.html')
+
+@app.route('/auth/settings')
+def settings_page():
+    """Show the settings page"""
+    return send_from_directory('auth', 'settings.html')
 
 @app.route('/auth/login')
 def auth_login():
@@ -56,6 +74,14 @@ def auth_redirect():
     try:
         # Generate session from the request token
         kite.generate_session(request_token)
+        
+        # Notify via Telegram if enabled
+        try:
+            profile = kite.get_profile()
+            telegram.notify_auth_status(True, profile.get('user_name', 'Unknown'))
+        except:
+            pass
+            
         return redirect('/auth/refresh')
     except Exception as e:
         logger.error(f"Authentication error: {e}")
@@ -146,6 +172,15 @@ def process_chartink_alert(alert_data):
     }
     """
     try:
+        # Add timestamp to the alert data
+        alert_data["timestamp"] = datetime.now().isoformat()
+        
+        # Store the alert
+        received_alerts.append(alert_data)
+        
+        # Notify via Telegram
+        telegram.notify_chartink_alert(alert_data)
+        
         # Extract data from the alert
         stocks = alert_data.get('stocks', '').split(',')
         prices = alert_data.get('trigger_prices', '').split(',')
@@ -237,6 +272,10 @@ def process_chartink_alert(alert_data):
                     "order_id": order_id
                 }
                 
+                # Send trade notification to Telegram
+                telegram.notify_trade(trade_details)
+                
+                # Append to trade log file
                 with open("trade_log.json", "a") as f:
                     f.write(json.dumps(trade_details) + "\n")
                 
@@ -277,6 +316,194 @@ def webhook():
     
     except Exception as e:
         logger.error(f"Webhook error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# API Endpoints for Dashboard and Settings Pages
+@app.route('/api/positions', methods=['GET'])
+def get_positions():
+    """Get current positions"""
+    if not authenticate_kite():
+        return jsonify({"status": "error", "message": "Kite authentication failed"}), 500
+    
+    try:
+        positions = kite.get_positions()
+        return jsonify({"status": "success", "data": positions})
+    except Exception as e:
+        logger.error(f"Error getting positions: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/orders', methods=['GET'])
+def get_orders():
+    """Get today's orders"""
+    if not authenticate_kite():
+        return jsonify({"status": "error", "message": "Kite authentication failed"}), 500
+    
+    try:
+        orders = kite.get_orders()
+        return jsonify({"status": "success", "data": orders})
+    except Exception as e:
+        logger.error(f"Error getting orders: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/margins', methods=['GET'])
+def get_margins():
+    """Get available margins"""
+    if not authenticate_kite():
+        return jsonify({"status": "error", "message": "Kite authentication failed"}), 500
+    
+    try:
+        margins = kite.get_margins()
+        return jsonify({"status": "success", "data": margins})
+    except Exception as e:
+        logger.error(f"Error getting margins: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/alerts', methods=['GET'])
+def get_alerts():
+    """Get received alerts"""
+    try:
+        # Only return alerts from today
+        today = datetime.now().date()
+        today_alerts = [
+            alert for alert in received_alerts 
+            if datetime.fromisoformat(alert.get("timestamp", "")).date() == today
+        ]
+        
+        return jsonify({"status": "success", "data": today_alerts})
+    except Exception as e:
+        logger.error(f"Error getting alerts: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings():
+    """Get current settings"""
+    try:
+        settings = {
+            "DEFAULT_QUANTITY": DEFAULT_QUANTITY,
+            "MAX_TRADE_VALUE": MAX_TRADE_VALUE,
+            "STOP_LOSS_PERCENT": STOP_LOSS_PERCENT,
+            "TARGET_PERCENT": TARGET_PERCENT,
+            "TELEGRAM_BOT_TOKEN": os.getenv("TELEGRAM_BOT_TOKEN", ""),
+            "TELEGRAM_CHAT_ID": os.getenv("TELEGRAM_CHAT_ID", "")
+        }
+        
+        return jsonify({"status": "success", "data": settings})
+    except Exception as e:
+        logger.error(f"Error getting settings: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+def update_env_value(key, value):
+    """
+    Update a value in the .env file
+    Note: This only works locally, not on Railway
+    """
+    if os.path.exists('.env'):
+        try:
+            with open('.env', 'r') as f:
+                lines = f.readlines()
+            
+            updated = False
+            with open('.env', 'w') as f:
+                for line in lines:
+                    if line.startswith(f"{key}="):
+                        f.write(f"{key}={value}\n")
+                        updated = True
+                    else:
+                        f.write(line)
+                
+                if not updated:
+                    f.write(f"{key}={value}\n")
+            
+            # Also update the environment variable in memory
+            os.environ[key] = str(value)
+            return True
+        except Exception as e:
+            logger.error(f"Error updating .env file: {e}")
+            return False
+    else:
+        # For Railway we can only update in memory
+        os.environ[key] = str(value)
+        return True
+
+@app.route('/api/settings/trading', methods=['POST'])
+def update_trading_settings():
+    """Update trading settings"""
+    if not authenticate_kite():
+        return jsonify({"status": "error", "message": "Kite authentication failed"}), 500
+    
+    try:
+        data = request.json
+        
+        # Update global variables
+        global DEFAULT_QUANTITY, MAX_TRADE_VALUE, STOP_LOSS_PERCENT, TARGET_PERCENT
+        
+        DEFAULT_QUANTITY = int(data.get("DEFAULT_QUANTITY", DEFAULT_QUANTITY))
+        MAX_TRADE_VALUE = float(data.get("MAX_TRADE_VALUE", MAX_TRADE_VALUE))
+        STOP_LOSS_PERCENT = float(data.get("STOP_LOSS_PERCENT", STOP_LOSS_PERCENT))
+        TARGET_PERCENT = float(data.get("TARGET_PERCENT", TARGET_PERCENT))
+        
+        # Update .env file if it exists
+        update_env_value("DEFAULT_QUANTITY", DEFAULT_QUANTITY)
+        update_env_value("MAX_TRADE_VALUE", MAX_TRADE_VALUE)
+        update_env_value("STOP_LOSS_PERCENT", STOP_LOSS_PERCENT)
+        update_env_value("TARGET_PERCENT", TARGET_PERCENT)
+        
+        logger.info(f"Trading settings updated: DEFAULT_QUANTITY={DEFAULT_QUANTITY}, MAX_TRADE_VALUE={MAX_TRADE_VALUE}, STOP_LOSS_PERCENT={STOP_LOSS_PERCENT}, TARGET_PERCENT={TARGET_PERCENT}")
+        
+        return jsonify({"status": "success", "message": "Trading settings updated successfully"})
+    except Exception as e:
+        logger.error(f"Error updating trading settings: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/settings/telegram', methods=['POST'])
+def update_telegram_settings():
+    """Update Telegram settings"""
+    if not authenticate_kite():
+        return jsonify({"status": "error", "message": "Kite authentication failed"}), 500
+    
+    try:
+        data = request.json
+        
+        bot_token = data.get("TELEGRAM_BOT_TOKEN", "")
+        chat_id = data.get("TELEGRAM_CHAT_ID", "")
+        
+        # Update .env file if it exists
+        update_env_value("TELEGRAM_BOT_TOKEN", bot_token)
+        update_env_value("TELEGRAM_CHAT_ID", chat_id)
+        
+        # Update the telegram notifier
+        global telegram
+        telegram = TelegramNotifier(bot_token, chat_id)
+        
+        logger.info(f"Telegram settings updated: BOT_TOKEN={'*'*10 if bot_token else 'Not set'}, CHAT_ID={chat_id}")
+        
+        return jsonify({"status": "success", "message": "Telegram settings updated successfully"})
+    except Exception as e:
+        logger.error(f"Error updating Telegram settings: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/telegram/test', methods=['POST'])
+def test_telegram():
+    """Send a test message via Telegram"""
+    try:
+        data = request.json
+        
+        bot_token = data.get("TELEGRAM_BOT_TOKEN", "")
+        chat_id = data.get("TELEGRAM_CHAT_ID", "")
+        
+        test_notifier = TelegramNotifier(bot_token, chat_id)
+        
+        if not test_notifier.is_enabled():
+            return jsonify({"status": "error", "message": "Please provide both Bot Token and Chat ID"}), 400
+        
+        result = test_notifier.send_test_message()
+        
+        if result:
+            return jsonify({"status": "success", "message": "Test message sent successfully"})
+        else:
+            return jsonify({"status": "error", "message": "Failed to send test message. Check your credentials and network connection."}), 500
+    except Exception as e:
+        logger.error(f"Error sending test Telegram message: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":

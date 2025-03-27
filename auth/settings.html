@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trading Settings</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            background-color: #f5f5f5;
+        }
+        .container { 
+            max-width: 800px; 
+            margin: 0 auto; 
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .nav {
+            display: flex;
+            gap: 15px;
+        }
+        .nav a {
+            text-decoration: none;
+            color: #387ed1;
+            font-weight: bold;
+        }
+        .card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        .input-group {
+            display: flex;
+            align-items: center;
+        }
+        .input-group input {
+            flex: 1;
+        }
+        .input-group-addon {
+            padding: 10px;
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-left: none;
+            border-radius: 0 4px 4px 0;
+        }
+        .form-actions {
+            margin-top: 20px;
+            display: flex;
+            justify-content: flex-end;
+        }
+        .btn {
+            padding: 10px 20px;
+            border-radius: 4px;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .btn-primary {
+            background-color: #387ed1;
+            color: white;
+        }
+        .btn-primary:hover {
+            background-color: #2d6bba;
+        }
+        .status-message {
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 4px;
+        }
+        .success-message {
+            background-color: #e6ffe6;
+            border: 1px solid #99cc99;
+            color: #006600;
+        }
+        .error-message {
+            background-color: #ffe6e6;
+            border: 1px solid #cc9999;
+            color: #cc0000;
+        }
+        .telegram-section {
+            margin-top: 20px;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Trading Settings</h1>
+            <div class="nav">
+                <a href="/auth/refresh">Authentication</a>
+                <a href="/">Dashboard</a>
+                <a href="/auth/alerts">Alerts</a>
+            </div>
+        </div>
+
+        <div id="auth-status" class="card"></div>
+        
+        <div class="section">
+            <h2>Trading Parameters</h2>
+            <form id="trading-settings-form">
+                <div class="form-group">
+                    <label for="defaultQuantity">Default Quantity</label>
+                    <input type="number" id="defaultQuantity" min="1" step="1" required>
+                    <small>Default quantity to trade when not calculated based on price</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="maxTradeValue">Maximum Trade Value</label>
+                    <div class="input-group">
+                        <input type="number" id="maxTradeValue" min="1000" step="1000" required>
+                        <span class="input-group-addon">INR</span>
+                    </div>
+                    <small>Maximum amount to allocate per trade</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="stopLossPercent">Stop Loss Percentage</label>
+                    <div class="input-group">
+                        <input type="number" id="stopLossPercent" min="0.1" max="10" step="0.1" required>
+                        <span class="input-group-addon">%</span>
+                    </div>
+                    <small>Stop loss will be placed at this percentage below the buy price</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="targetPercent">Target Percentage</label>
+                    <div class="input-group">
+                        <input type="number" id="targetPercent" min="0.1" max="20" step="0.1" required>
+                        <span class="input-group-addon">%</span>
+                    </div>
+                    <small>Target order will be placed at this percentage above the buy price</small>
+                </div>
+                
+                <div id="status-message" style="display: none;"></div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                </div>
+            </form>
+        </div>
+        
+        <div class="section telegram-section">
+            <h2>Telegram Notifications</h2>
+            <form id="telegram-settings-form">
+                <div class="form-group">
+                    <label for="telegramBotToken">Telegram Bot Token</label>
+                    <input type="text" id="telegramBotToken">
+                    <small>API token from BotFather (leave empty to disable Telegram notifications)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="telegramChatId">Telegram Chat ID</label>
+                    <input type="text" id="telegramChatId">
+                    <small>Your chat ID or channel name (@channel) where notifications should be sent</small>
+                </div>
+                
+                <div id="telegram-status-message" style="display: none;"></div>
+                
+                <div class="form-actions">
+                    <button type="button" id="test-telegram" class="btn btn-primary" style="margin-right: 10px;">Test Notification</button>
+                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Check authentication status
+        function checkAuth() {
+            fetch('/auth/status')
+                .then(response => response.json())
+                .then(data => {
+                    let statusDiv = document.getElementById('auth-status');
+                    
+                    if (data.authenticated) {
+                        statusDiv.innerHTML = `<p>✅ Logged in as: <strong>${data.user}</strong> | Last authenticated: ${data.last_login}</p>`;
+                    } else {
+                        statusDiv.innerHTML = '<p>❌ Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to configure settings.</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('auth-status').innerHTML = '<p>❌ Error checking authentication status.</p>';
+                });
+        }
+        
+        // Load current settings
+        function loadSettings() {
+            fetch('/api/settings')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        const settings = data.data;
+                        
+                        // Trading settings
+                        document.getElementById('defaultQuantity').value = settings.DEFAULT_QUANTITY || 1;
+                        document.getElementById('maxTradeValue').value = settings.MAX_TRADE_VALUE || 5000;
+                        document.getElementById('stopLossPercent').value = settings.STOP_LOSS_PERCENT || 2;
+                        document.getElementById('targetPercent').value = settings.TARGET_PERCENT || 4;
+                        
+                        // Telegram settings
+                        document.getElementById('telegramBotToken').value = settings.TELEGRAM_BOT_TOKEN || '';
+                        document.getElementById('telegramChatId').value = settings.TELEGRAM_CHAT_ID || '';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showMessage('status-message', 'Error loading settings', 'error');
+                });
+        }
+        
+        // Save trading settings
+        document.getElementById('trading-settings-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const settings = {
+                DEFAULT_QUANTITY: parseInt(document.getElementById('defaultQuantity').value),
+                MAX_TRADE_VALUE: parseFloat(document.getElementById('maxTradeValue').value),
+                STOP_LOSS_PERCENT: parseFloat(document.getElementById('stopLossPercent').value),
+                TARGET_PERCENT: parseFloat(document.getElementById('targetPercent').value)
+            };
+            
+            fetch('/api/settings/trading', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(settings)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showMessage('status-message', 'Trading settings saved successfully', 'success');
+                } else {
+                    showMessage('status-message', `Error: ${data.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showMessage('status-message', 'Error saving settings', 'error');
+            });
+        });
+        
+        // Save Telegram settings
+        document.getElementById('telegram-settings-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const settings = {
+                TELEGRAM_BOT_TOKEN: document.getElementById('telegramBotToken').value,
+                TELEGRAM_CHAT_ID: document.getElementById('telegramChatId').value
+            };
+            
+            fetch('/api/settings/telegram', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(settings)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showMessage('telegram-status-message', 'Telegram settings saved successfully', 'success');
+                } else {
+                    showMessage('telegram-status-message', `Error: ${data.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showMessage('telegram-status-message', 'Error saving Telegram settings', 'error');
+            });
+        });
+        
+        // Test Telegram notification
+        document.getElementById('test-telegram').addEventListener('click', function() {
+            const token = document.getElementById('telegramBotToken').value;
+            const chatId = document.getElementById('telegramChatId').value;
+            
+            if (!token || !chatId) {
+                showMessage('telegram-status-message', 'Please enter both Bot Token and Chat ID', 'error');
+                return;
+            }
+            
+            fetch('/api/telegram/test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    TELEGRAM_BOT_TOKEN: token,
+                    TELEGRAM_CHAT_ID: chatId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showMessage('telegram-status-message', 'Test message sent successfully', 'success');
+                } else {
+                    showMessage('telegram-status-message', `Error: ${data.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showMessage('telegram-status-message', 'Error sending test message', 'error');
+            });
+        });
+        
+        // Helper function to show messages
+        function showMessage(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = message;
+            element.className = type === 'success' ? 'status-message success-message' : 'status-message error-message';
+            element.style.display = 'block';
+            
+            // Hide the message after 5 seconds
+            setTimeout(() => {
+                element.style.display = 'none';
+            }, 5000);
+        }
+        
+        // Initial load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuth();
+            loadSettings();
+        });
+    </script>
+</body>
+</html> 

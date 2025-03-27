@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ChartInk Alerts</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            background-color: #f5f5f5;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .nav {
+            display: flex;
+            gap: 15px;
+        }
+        .nav a {
+            text-decoration: none;
+            color: #387ed1;
+            font-weight: bold;
+        }
+        .card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background-color: #f8f8f8;
+            font-weight: bold;
+        }
+        tr:hover {
+            background-color: #f9f9f9;
+        }
+        .alert-card {
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .alert-header {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+        .alert-time {
+            color: #888;
+            font-size: 14px;
+        }
+        .refresh-btn {
+            background-color: #387ed1;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .buy {
+            color: green;
+        }
+        .sell {
+            color: red;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: #888;
+        }
+        .stock-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .stock-item {
+            background-color: #fff;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            padding: 5px 10px;
+            display: flex;
+            align-items: center;
+        }
+        .stock-symbol {
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        .stock-price {
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>ChartInk Alerts</h1>
+            <div class="nav">
+                <a href="/auth/refresh">Authentication</a>
+                <a href="/">Dashboard</a>
+                <a href="/auth/settings">Settings</a>
+            </div>
+        </div>
+
+        <div id="auth-status" class="card"></div>
+        
+        <div class="section">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>Today's Alerts</h2>
+                <button id="refresh-alerts" class="refresh-btn">Refresh</button>
+            </div>
+            <div id="alerts-container">
+                <div class="empty-state">Loading alerts...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Check authentication status
+        function checkAuth() {
+            fetch('/auth/status')
+                .then(response => response.json())
+                .then(data => {
+                    let statusDiv = document.getElementById('auth-status');
+                    
+                    if (data.authenticated) {
+                        statusDiv.innerHTML = `<p>✅ Logged in as: <strong>${data.user}</strong> | Last authenticated: ${data.last_login}</p>`;
+                    } else {
+                        statusDiv.innerHTML = '<p>❌ Not authenticated. <a href="/auth/refresh">Login to Zerodha</a> to view your alerts and positions.</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('auth-status').innerHTML = '<p>❌ Error checking authentication status.</p>';
+                });
+        }
+        
+        // Fetch alerts
+        function fetchAlerts() {
+            document.getElementById('alerts-container').innerHTML = '<div class="empty-state">Loading alerts...</div>';
+            
+            fetch('/api/alerts')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        const alerts = data.data;
+                        
+                        if (alerts.length === 0) {
+                            document.getElementById('alerts-container').innerHTML = '<div class="empty-state">No alerts received today</div>';
+                            return;
+                        }
+                        
+                        let alertsHtml = '';
+                        
+                        alerts.forEach(alert => {
+                            // Determine if it's a buy or sell signal based on scan name
+                            const scanLower = alert.scan_name.toLowerCase();
+                            const isBuy = scanLower.includes('buy') || scanLower.includes('bullish') || scanLower.includes('breakout');
+                            const isSell = scanLower.includes('sell') || scanLower.includes('bearish') || scanLower.includes('short');
+                            const signalClass = isBuy ? 'buy' : (isSell ? 'sell' : '');
+                            
+                            // Convert ISO timestamp to readable format
+                            const alertTime = new Date(alert.timestamp).toLocaleString();
+                            
+                            // Get stocks and prices
+                            const stocks = alert.stocks.split(',');
+                            const prices = alert.trigger_prices.split(',');
+                            
+                            // Create HTML for stocks list
+                            let stocksHtml = '<div class="stock-list">';
+                            for (let i = 0; i < stocks.length; i++) {
+                                if (stocks[i].trim()) {
+                                    stocksHtml += `
+                                        <div class="stock-item">
+                                            <span class="stock-symbol">${stocks[i].trim()}</span>
+                                            <span class="stock-price">₹${prices[i] ? prices[i].trim() : 'N/A'}</span>
+                                        </div>
+                                    `;
+                                }
+                            }
+                            stocksHtml += '</div>';
+                            
+                            alertsHtml += `
+                                <div class="alert-card">
+                                    <div class="alert-header">
+                                        <div class="${signalClass}">${alert.scan_name}</div>
+                                        <div class="alert-time">${alertTime}</div>
+                                    </div>
+                                    <div>Alert: ${alert.alert_name}</div>
+                                    <div>Triggered at: ${alert.triggered_at}</div>
+                                    ${stocksHtml}
+                                </div>
+                            `;
+                        });
+                        
+                        document.getElementById('alerts-container').innerHTML = alertsHtml;
+                    } else {
+                        document.getElementById('alerts-container').innerHTML = `<div class="empty-state">Error: ${data.message}</div>`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('alerts-container').innerHTML = '<div class="empty-state">Error fetching alerts</div>';
+                });
+        }
+        
+        // Initial load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuth();
+            fetchAlerts();
+            
+            // Set up refresh button
+            document.getElementById('refresh-alerts').addEventListener('click', fetchAlerts);
+        });
+    </script>
+</body>
+</html> 
