@@ -10,8 +10,17 @@ This project connects to Zerodha Kite API to fetch user profile, margin details,
 - **Telegram Notifications** - Receive instant alerts for trades, signals, and authentication status
 - **Authentication System** - Login, token management, and session handling
 - **Automated Trading** - Execute trades automatically based on ChartInk alerts
-- **Order Management** - Place orders with stop-loss and target levels
+- **Smart Order Management** - Place orders with intelligent position sizing and risk management
 - **Enhanced Signal Detection** - Advanced keyword detection for buy/sell signals
+- **Delivery Trading (CNC)** - All orders use CNC (delivery) type for equity trading
+- **Dynamic Position Sizing** - Automatically calculates position size based on available funds
+
+## Key Trading Features
+
+- **CNC Orders**: All trades use delivery (CNC) order type instead of intraday (MIS)
+- **Stop-Loss Only**: System places only stop-loss orders without targets for better trade management
+- **Intelligent Position Sizing**: Uses a configurable max position size and checks available funds
+- **Available Funds Check**: Verifies account has sufficient funds before placing orders
 
 ## Setup
 
@@ -33,6 +42,7 @@ This project connects to Zerodha Kite API to fetch user profile, margin details,
    MAX_TRADE_VALUE=5000
    STOP_LOSS_PERCENT=2
    TARGET_PERCENT=4
+   MAX_POSITION_SIZE=5000
    
    # Server Configuration
    PORT=5000
@@ -91,6 +101,28 @@ This project connects to Zerodha Kite API to fetch user profile, margin details,
    - Click "Login to Zerodha" and follow the authentication process
    - After successful authentication, your webhook is ready to receive ChartInk alerts
    - The authentication token will be stored in the database and will persist for 24 hours
+
+## Expected Behavior
+
+The system operates in the following manner when it receives a ChartInk alert:
+
+1. **Authentication Check**: Verifies the Zerodha API token is valid
+2. **Available Funds Check**: Confirms sufficient funds are available for trading
+3. **Signal Processing**:
+   - Parses the stocks and prices from the alert
+   - Determines buy/sell action based on scanner name or explicit action field
+   - Logs the alert and notifies via Telegram
+4. **For Each Stock**:
+   - **Fund Allocation Check**: Ensures there are enough remaining funds
+   - **Position Sizing**: Calculates quantity based on the Max Position Size setting and available funds
+   - **Order Placement**:
+     - Places market orders with CNC (delivery) order type
+     - Uses CNC (delivery) order type for all trades
+   - **Risk Management**: Places stop-loss orders at the configured percentage
+   - **Trade Tracking**: Logs all trade details and sends notifications
+5. **Dashboard Update**: Updates the positions and orders on the dashboard
+
+The system deliberately does not place target orders, leaving you in control of taking profits while automatically managing risk with stop-loss orders.
 
 ## Usage
 

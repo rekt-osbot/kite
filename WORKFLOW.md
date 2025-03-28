@@ -50,6 +50,7 @@ This document explains the complete workflow for setting up and using the ChartI
      MAX_TRADE_VALUE=5000
      STOP_LOSS_PERCENT=2
      TARGET_PERCENT=4
+     MAX_POSITION_SIZE=5000
      PORT=5000
      DEBUG=False
      APP_URL=https://kite-project-production.up.railway.app
@@ -172,23 +173,26 @@ This document explains the complete workflow for setting up and using the ChartI
    - The alert is logged and displayed on the Alerts page
    - A notification is sent to Telegram (if configured)
 
-3. **Transaction Type Determination**:
+3. **Available Funds Check**:
+   - System checks if there are sufficient funds in your Zerodha account
+   - If funds are insufficient, the alert is logged but no orders are placed
+   - A notification is sent to Telegram about insufficient funds
+
+4. **Transaction Type Determination**:
    - The app looks at the scan name to determine buy/sell
    - Buys if scan name contains: "buy", "bullish", "breakout"
    - Sells if scan name contains: "sell", "bearish", "short"
 
-4. **Order Execution**:
+5. **Order Execution**:
    - For each stock in the alert:
-     1. Calculates quantity based on price and `MAX_TRADE_VALUE` (configurable)
-     2. Places order through Zerodha Kite API
-     3. For buy orders:
-        - Places stop-loss order at `price * (1 - STOP_LOSS_PERCENT/100)` (configurable)
-        - Places target order at `price * (1 + TARGET_PERCENT/100)` (configurable)
-     4. Logs the trade details
-     5. Sends execution notification to Telegram (if configured)
+     1. **Position Sizing**: Calculates quantity based on `MAX_POSITION_SIZE` and available funds
+     2. **CNC Orders**: Uses delivery (CNC) order type for all trades
+     3. **Stop-Loss Only**: For buy orders, places only stop-loss sell orders (no target orders)
+     4. Logs the trade details and sends execution notification to Telegram
 
-5. **Trade Management**:
-   - Stop-loss and target orders handle risk management automatically
+6. **Trade Management**:
+   - Stop-loss orders handle risk management automatically
+   - You manually manage taking profits (no automatic target orders)
    - You can monitor positions and orders in your app dashboard or Zerodha account
 
 ## Notifications
@@ -197,7 +201,8 @@ This document explains the complete workflow for setting up and using the ChartI
    - Authentication status changes
    - ChartInk alerts received
    - Trade executions
-   - Stop loss and target order placements
+   - Stop loss order placements
+   - Insufficient funds warnings
 
 2. **Web Dashboard**:
    - Realtime trade status
@@ -254,7 +259,24 @@ Your system is deployed with the following configuration:
 1. **Deployment URL**: https://kite-project-production.up.railway.app/
 2. **Zerodha API Key**: zx6rwc52fvhexvjo
 3. **Default Trading Parameters**:
-   - Default Quantity: 1
+   - Default Quantity: 1 (fallback if position sizing calculation fails)
    - Max Trade Value: 5000 INR
+   - Max Position Size: 5000 INR per trade
    - Stop Loss: 2%
-   - Target: 4% 
+   - Target: 4% (saved but not used, as target orders are not placed)
+
+## Important Trading Characteristics
+
+1. **Delivery-based Trading**:
+   - All orders use CNC (delivery) order type
+   - No intraday (MIS) orders are placed
+
+2. **Risk Management**:
+   - Only stop-loss orders are placed automatically
+   - No target orders - you control when to take profits
+   - Stop-loss percentage is configurable in settings
+
+3. **Smart Position Sizing**:
+   - Positions are sized based on the max position size setting
+   - System ensures you never exceed your available funds
+   - Tracks funds already allocated to avoid over-allocation 

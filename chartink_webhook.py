@@ -223,37 +223,6 @@ def place_order(symbol, transaction_type, quantity, order_type="MARKET", price=0
         elif "NSE:" in symbol:
             symbol = symbol.replace("NSE:", "")
         
-        # For BUY orders, if using MARKET, convert to LIMIT orders with a competitive price
-        # This helps avoid slippage from wide bid-ask spreads
-        if transaction_type == "BUY" and order_type == "MARKET":
-            try:
-                # Get current market depth to find the best bid and ask prices
-                market_data = kite.get_quote(f"{exchange}:{symbol}")
-                if market_data:
-                    stock_data = market_data.get(f"{exchange}:{symbol}", {})
-                    depth = stock_data.get("depth", {})
-                    
-                    if depth and "buy" in depth and "sell" in depth:
-                        buy_orders = depth["buy"]
-                        sell_orders = depth["sell"]
-                        
-                        if buy_orders and sell_orders:
-                            # Find the highest bid and lowest ask
-                            highest_bid = buy_orders[0]["price"]
-                            lowest_ask = sell_orders[0]["price"]
-                            
-                            # Set our price slightly above the highest bid 
-                            # but below the lowest ask to avoid overpaying
-                            bid_ask_spread = lowest_ask - highest_bid
-                            
-                            if bid_ask_spread > 0:
-                                # If spread is significant, place order at 80% of spread above highest bid
-                                price = highest_bid + (bid_ask_spread * 0.8)
-                                order_type = "LIMIT"
-                                logger.info(f"Converting to LIMIT order with price {price} for {symbol}")
-            except Exception as e:
-                logger.warning(f"Could not fetch market depth for {symbol}: {e}. Using MARKET order.")
-        
         # Place the order
         order_params = {
             "tradingsymbol": symbol,
