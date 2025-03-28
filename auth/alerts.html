@@ -399,6 +399,20 @@
     </div>
 
     <script>
+        // Format date and time nicely
+        function formatDateTime(dateTimeStr) {
+            if (!dateTimeStr) return 'undefined';
+            const dt = new Date(dateTimeStr);
+            return dt.toLocaleString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: true 
+            });
+        }
+        
         // Cache auth status in localStorage for persistence
         function getAuthStatusFromCache() {
             const authCache = localStorage.getItem('authStatus');
@@ -407,15 +421,15 @@
                     const cache = JSON.parse(authCache);
                     
                     // Check if cache has expired based on server-provided expiry time
-                    if (cache.data.cache_until) {
-                        const cacheExpiry = new Date(cache.data.cache_until);
+                    if (cache.data && cache.data.expires_at) {
+                        const cacheExpiry = new Date(cache.data.expires_at);
                         const now = new Date();
                         if (now < cacheExpiry) {
                             return cache.data;
                         }
                     } 
                     // Fallback to client-side expiry if server didn't provide one
-                    else {
+                    else if (cache.timestamp) {
                         const cacheTime = new Date(cache.timestamp);
                         const now = new Date();
                         // If cache is less than 5 minutes old, use it
@@ -473,8 +487,8 @@
                     <div class="auth-status auth-success">
                         <i class="ri-check-double-line"></i>
                         <div>
-                            <div><strong>Currently logged in as: ${data.user_name}</strong></div>
-                            <div>Authentication valid until: ${data.expiry}</div>
+                            <div><strong>Currently logged in as: ${data.user || data.user_name || 'undefined'}</strong></div>
+                            <div>Authentication valid until: ${data.expires_at ? formatDateTime(data.expires_at) : (data.expiry || 'undefined')}</div>
                         </div>
                     </div>
                 `;

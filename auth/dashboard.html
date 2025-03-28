@@ -483,58 +483,98 @@
             }).format(amount).replace('₹', '₹');
         }
 
+        // Cache auth status in localStorage for persistence
+        function getAuthStatusFromCache() {
+            const authCache = localStorage.getItem('authStatus');
+            if (authCache) {
+                try {
+                    const cache = JSON.parse(authCache);
+                    
+                    // Check if cache has expired based on server-provided expiry time
+                    if (cache.data && cache.data.expires_at) {
+                        const cacheExpiry = new Date(cache.data.expires_at);
+                        const now = new Date();
+                        if (now < cacheExpiry) {
+                            return cache.data;
+                        }
+                    } 
+                    // Fallback to client-side expiry if server didn't provide one
+                    else if (cache.timestamp) {
+                        const cacheTime = new Date(cache.timestamp);
+                        const now = new Date();
+                        // If cache is less than 5 minutes old, use it
+                        if ((now.getTime() - cacheTime.getTime()) < 5 * 60 * 1000) {
+                            return cache.data;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error parsing auth cache:', e);
+                }
+            }
+            return null;
+        }
+
         // Check authentication status
         function checkAuthStatus() {
+            // Try to get from cache first
+            const cachedStatus = getAuthStatusFromCache();
+            if (cachedStatus) {
+                renderAuthStatus(cachedStatus);
+                return;
+            }
+            
             fetch('/auth/status')
                 .then(response => response.json())
                 .then(data => {
-                    const statusElement = document.getElementById('auth-status');
-                    const statusContainer = document.getElementById('auth-status-container');
+                    renderAuthStatus(data);
                     
-                    if (data.authenticated) {
-                        statusContainer.classList.add('success-bg');
-                        statusContainer.classList.remove('error-bg');
-                        
-                        // Format expiry time
-                        const expiryFormatted = formatDateTime(data.expires_at);
-                        
-                        statusElement.innerHTML = `
-                            <div class="status-icon"><i class="ri-check-double-line"></i></div>
-                            <div class="status-info">
-                                <p>Currently logged in as: <strong>${data.user || 'undefined'}</strong></p>
-                                <p>Authentication valid until: ${expiryFormatted}</p>
-                            </div>
-                        `;
-                    } else {
-                        statusContainer.classList.add('error-bg');
-                        statusContainer.classList.remove('success-bg');
-                        
-                        statusElement.innerHTML = `
-                            <div class="status-icon"><i class="ri-error-warning-line"></i></div>
-                            <div class="status-info">
-                                <p>Not authenticated</p>
-                                <p>Please <a href="/auth/refresh">login</a> to continue</p>
-                            </div>
-                        `;
-                    }
+                    // Cache the result
+                    localStorage.setItem('authStatus', JSON.stringify({
+                        data: data,
+                        timestamp: new Date().toISOString()
+                    }));
                 })
                 .catch(error => {
                     console.error('Error checking auth status:', error);
                     
                     const statusElement = document.getElementById('auth-status');
-                    const statusContainer = document.getElementById('auth-status-container');
-                    
-                    statusContainer.classList.add('error-bg');
-                    statusContainer.classList.remove('success-bg');
-                    
                     statusElement.innerHTML = `
-                        <div class="status-icon"><i class="ri-error-warning-line"></i></div>
-                        <div class="status-info">
-                            <p>Error checking status</p>
-                            <p>Please try again or <a href="/auth/refresh">login</a></p>
+                        <div class="auth-status auth-error">
+                            <i class="ri-error-warning-line"></i>
+                            <div>
+                                <div><strong>Error checking status</strong></div>
+                                <div>Please try again or <a href="/auth/refresh">login</a></div>
+                            </div>
                         </div>
                     `;
                 });
+        }
+        
+        // Function to render auth status
+        function renderAuthStatus(data) {
+            const statusElement = document.getElementById('auth-status');
+            
+            if (data.authenticated) {
+                statusElement.innerHTML = `
+                    <div class="auth-status auth-success">
+                        <i class="ri-check-double-line"></i>
+                        <div>
+                            <div><strong>Currently logged in as: ${data.user || data.user_name || 'undefined'}</strong></div>
+                            <div>Authentication valid until: ${data.expires_at ? formatDateTime(data.expires_at) : (data.expiry || 'undefined')}</div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                statusElement.innerHTML = `
+                    <div class="auth-status auth-error">
+                        <i class="ri-error-warning-line"></i>
+                        <div>
+                            <div><strong>Not authenticated</strong></div>
+                            <div>Please <a href="/auth/refresh">login</a> to continue</div>
+                        </div>
+                    </div>
+                `;
+            }
         }
 
         // Load initial data
