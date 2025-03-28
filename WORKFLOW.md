@@ -11,15 +11,15 @@ This document explains the complete workflow for setting up and using the ChartI
    - Login with your Zerodha credentials
    - Click "Create an App"
    - Fill in the details:
-     - **App Name**: CGTrades
-     - **Redirect URL**: `https://kite-project-production.up.railway.app/auth/redirect`
+     - **App Name**: [YOUR_APP_NAME]
+     - **Redirect URL**: `[YOUR_REDIRECT_URL]`
      - Leave other fields as default
    - Submit the form
 
 2. **Get API Credentials**:
    - After app creation, note down:
-     - **API Key**: zx6rwc52fvhexvjo
-     - **API Secret**: r9ggy73bjw7j2khe4sa5kmey6qyr8u47
+     - **API Key**: [YOUR_API_KEY]
+     - **API Secret**: [YOUR_API_SECRET]
 
 ### 2. Railway Deployment Setup
 
@@ -38,31 +38,31 @@ This document explains the complete workflow for setting up and using the ChartI
    - Register at [Railway.app](https://railway.app/)
    - Create a new project → "Deploy from GitHub"
    - Select your repository
-   - Once deployed, your app URL will be: `https://kite-project-production.up.railway.app`
+   - Once deployed, your app URL will be: `[YOUR_APP_URL]`
 
 3. **Set Environment Variables**:
    - Create a `.env` file with these variables:
      ```
-     KITE_API_KEY=zx6rwc52fvhexvjo
-     KITE_API_SECRET=r9ggy73bjw7j2khe4sa5kmey6qyr8u47
-     KITE_ACCESS_TOKEN=Sr7h40VOCOj7XM1NF3C4qq4ONz0DDrjr
-     DEFAULT_QUANTITY=1
-     MAX_TRADE_VALUE=5000
-     STOP_LOSS_PERCENT=2
-     TARGET_PERCENT=4
-     MAX_POSITION_SIZE=5000
-     PORT=5000
-     DEBUG=False
-     APP_URL=https://kite-project-production.up.railway.app
-     REDIRECT_URL=https://kite-project-production.up.railway.app/auth/redirect
-     TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-     TELEGRAM_CHAT_ID=your_telegram_chat_id
+     KITE_API_KEY=[YOUR_API_KEY]
+     KITE_API_SECRET=[YOUR_API_SECRET]
+     KITE_ACCESS_TOKEN=[YOUR_ACCESS_TOKEN]
+     DEFAULT_QUANTITY=[DEFAULT_QUANTITY]
+     MAX_TRADE_VALUE=[MAX_TRADE_VALUE]
+     STOP_LOSS_PERCENT=[STOP_LOSS_PERCENT]
+     TARGET_PERCENT=[TARGET_PERCENT]
+     MAX_POSITION_SIZE=[MAX_POSITION_SIZE]
+     PORT=[PORT]
+     DEBUG=[DEBUG_MODE]
+     APP_URL=[YOUR_APP_URL]
+     REDIRECT_URL=[YOUR_REDIRECT_URL]
+     TELEGRAM_BOT_TOKEN=[YOUR_TELEGRAM_BOT_TOKEN]
+     TELEGRAM_CHAT_ID=[YOUR_TELEGRAM_CHAT_ID]
      ```
    - Upload these variables to Railway either via the web interface or CLI
 
 4. **Update Zerodha Redirect URL**:
    - Ensure your Zerodha app's Redirect URL is set to:
-   - `https://kite-project-production.up.railway.app/auth/redirect`
+   - `[YOUR_REDIRECT_URL]`
 
 ### 3. Telegram Setup (Optional)
 
@@ -85,7 +85,7 @@ This document explains the complete workflow for setting up and using the ChartI
 ### 4. Initial Token Authentication
 
 1. **Access Your App**:
-   - Open [https://kite-project-production.up.railway.app/](https://kite-project-production.up.railway.app/) in your browser
+   - Open [YOUR_APP_URL](https://your-app-url/) in your browser
    - You'll see the dashboard page
 
 2. **Authenticate with Zerodha**:
@@ -107,7 +107,7 @@ This document explains the complete workflow for setting up and using the ChartI
 2. **Set Up Webhook Alert**:
    - Click "Create/Modify Alert" below the scanner
    - In the alert settings, find the webhook URL field
-   - Enter: `https://kite-project-production.up.railway.app/webhook`
+   - Enter: `[YOUR_WEBHOOK_URL]`
    - Set other alert parameters as needed
    - Save the alert
 
@@ -121,7 +121,7 @@ This document explains the complete workflow for setting up and using the ChartI
    - You'll receive a notification via Telegram if configured
 
 2. **Manual Refresh**:
-   - Visit [https://kite-project-production.up.railway.app/auth/refresh](https://kite-project-production.up.railway.app/auth/refresh)
+   - Visit [YOUR_APP_URL/auth/refresh](https://your-app-url/auth/refresh)
    - Click "Login to Zerodha"
    - Complete the Zerodha login flow
    - Your token is now refreshed for the day
@@ -129,7 +129,7 @@ This document explains the complete workflow for setting up and using the ChartI
 ### 2. Using the Dashboard
 
 1. **Viewing Positions and Orders**:
-   - Visit [https://kite-project-production.up.railway.app/](https://kite-project-production.up.railway.app/)
+   - Visit [YOUR_APP_URL](https://your-app-url/)
    - The dashboard shows current positions, P&L, available margin, and orders
    - Use the refresh buttons to update data in real-time
 
@@ -211,72 +211,3 @@ This document explains the complete workflow for setting up and using the ChartI
    - Alert history
 
 ## Data Flow Diagram
-
-```
-┌─────────────┐    Scanner Alert    ┌───────────────────────────┐      Order      ┌─────────────┐
-│   ChartInk  │──────Webhook───────▶│  kite-project-production  │───Placement────▶│   Zerodha   │
-│   Scanner   │                     │      .up.railway.app      │                 │    Kite     │
-└─────────────┘                     └───────────────────────────┘                 └─────────────┘
-                                              ▲                                         ▲
-                                              │                                         │
-                                              │                                         │
-                                     Token    │                                         │   Authentication
-                                  Refresh     │                                         │
-                                              │                                         │
-                                              │                                         │
-                                        ┌─────┴──────┐                                  │
-                                        │    You     │──────────────────────────────────┘
-                                        │  (Browser) │    Login
-                                        └────────────┘
-```
-
-## Troubleshooting
-
-1. **Authentication Failures**:
-   - Check if the `REDIRECT_URL` in your environment variables matches exactly with what's set in Zerodha Developer Console
-   - Ensure the API key and secret are correctly copied
-   - Current redirect URL: `https://kite-project-production.up.railway.app/auth/redirect`
-
-2. **Webhook Not Working**:
-   - Verify your ChartInk alert has the correct webhook URL: `https://kite-project-production.up.railway.app/webhook`
-   - Check if your access token is valid (visit your app URL to confirm)
-   - Look at the logs in Railway dashboard for any errors
-
-3. **Orders Not Executing**:
-   - Ensure you have sufficient funds in your Zerodha account
-   - Check if the market is open (orders won't execute during market closure)
-   - Verify the trading symbols from ChartInk match Zerodha's format
-
-4. **Telegram Notifications Not Working**:
-   - Verify bot token and chat ID are correctly entered
-   - Ensure you've started a conversation with your bot in Telegram
-   - Use the "Test Notification" button in Settings to diagnose issues
-
-## Current Configuration
-
-Your system is deployed with the following configuration:
-
-1. **Deployment URL**: https://kite-project-production.up.railway.app/
-2. **Zerodha API Key**: zx6rwc52fvhexvjo
-3. **Default Trading Parameters**:
-   - Default Quantity: 1 (fallback if position sizing calculation fails)
-   - Max Trade Value: 5000 INR
-   - Max Position Size: 5000 INR per trade
-   - Stop Loss: 2%
-   - Target: 4% (saved but not used, as target orders are not placed)
-
-## Important Trading Characteristics
-
-1. **Delivery-based Trading**:
-   - All orders use CNC (delivery) order type
-   - No intraday (MIS) orders are placed
-
-2. **Risk Management**:
-   - Only stop-loss orders are placed automatically
-   - No target orders - you control when to take profits
-   - Stop-loss percentage is configurable in settings
-
-3. **Smart Position Sizing**:
-   - Positions are sized based on the max position size setting
-   - System ensures you never exceed your available funds
-   - Tracks funds already allocated to avoid over-allocation 
