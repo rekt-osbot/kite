@@ -127,6 +127,27 @@
             box-shadow: var(--shadow);
         }
         
+        .info-box {
+            background-color: #f8f9fa;
+            border-left: 4px solid var(--info);
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: var(--radius-sm);
+        }
+        
+        .info-box p {
+            margin: 0;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+        
+        .info-box i {
+            color: var(--info);
+            font-size: 18px;
+            margin-top: 2px;
+        }
+        
         h2 {
             margin-top: 0;
             color: var(--dark);
@@ -379,6 +400,9 @@
                 </div>
                 <h2>Trading Parameters</h2>
             </div>
+            <div class="info-box">
+                <p><i class="ri-information-line"></i> <strong>Smart Order Placement:</strong> All orders use CNC (delivery) type. For large bid-ask spreads, the system will place a limit order at 80% of the spread above the highest bid to reduce slippage while ensuring execution.</p>
+            </div>
             <form id="trading-settings-form">
                 <div class="form-group">
                     <label for="defaultQuantity">Default Quantity</label>
@@ -401,7 +425,7 @@
                         <input type="number" id="maxPositionSize" min="1000" step="1000" required>
                         <span class="input-group-addon">INR</span>
                     </div>
-                    <small>Maximum position size for a single trade (updates daily based on market conditions)</small>
+                    <small>Maximum position size for a single trade. The system will calculate quantity based on this value and available funds, ensuring no more than this amount is allocated per position.</small>
                 </div>
                 
                 <div class="form-group">
@@ -410,7 +434,7 @@
                         <input type="number" id="stopLossPercent" min="0.1" max="10" step="0.1" required>
                         <span class="input-group-addon">%</span>
                     </div>
-                    <small>Stop loss will be placed at this percentage below the buy price</small>
+                    <small>Stop loss will be placed at this percentage below the buy price using CNC (delivery) order type</small>
                 </div>
                 
                 <div class="form-group">
@@ -419,7 +443,7 @@
                         <input type="number" id="targetPercent" min="0.1" max="20" step="0.1" required>
                         <span class="input-group-addon">%</span>
                     </div>
-                    <small>Target order will be placed at this percentage above the buy price</small>
+                    <small>Target percentage is saved but not currently used (only stop loss orders are placed)</small>
                 </div>
                 
                 <div class="form-actions">
