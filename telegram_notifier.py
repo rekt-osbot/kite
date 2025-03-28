@@ -2,7 +2,7 @@ import os
 import logging
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, date
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -147,11 +147,15 @@ class TelegramNotifier:
             else:
                 emoji = "🔴"
             
+            # Calculate trade value
+            trade_value = quantity * price
+            
             # Create the message
             message = f"{emoji} <b>{transaction_type.upper()} Order Placed</b>\n\n"
             message += f"<b>Symbol:</b> {symbol}\n"
             message += f"<b>Quantity:</b> {quantity}\n"
             message += f"<b>Price:</b> ₹{price}\n"
+            message += f"<b>Value:</b> ₹{trade_value:.2f}\n"
             message += f"<b>Time:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             message += f"<b>Order ID:</b> <code>{order_id}</code>\n"
             
@@ -182,6 +186,131 @@ class TelegramNotifier:
             return self.send_message(message)
         except Exception as e:
             self.logger.error(f"Failed to create auth status notification: {e}")
+            return False
+    
+    def notify_day_summary(self, trades_data, pnl_data=None):
+        """
+        Send a notification with daily trading summary and P&L information.
+        
+        Args:
+            trades_data (list): List of trade details for the day.
+            pnl_data (dict): Dictionary with P&L information, if available.
+        
+        Returns:
+            bool: True if the notification was sent successfully, False otherwise.
+        """
+        try:
+            if not trades_data:
+                message = f"📊 <b>Trading Day Summary</b> - {date.today().strftime('%d %b %Y')}\n\n"
+                message += "No trades were executed today."
+                return self.send_message(message)
+            
+            # Count buy and sell trades
+            buy_count = sum(1 for trade in trades_data if trade.get('signal', '').upper() == 'BUY')
+            sell_count = sum(1 for trade in trades_data if trade.get('signal', '').upper() == 'SELL')
+            
+            # Calculate total value of buy and sell trades
+            buy_value = sum(trade.get('value', 0) for trade in trades_data if trade.get('signal', '').upper() == 'BUY')
+            sell_value = sum(trade.get('value', 0) for trade in trades_data if trade.get('signal', '').upper() == 'SELL')
+            
+            # Group trades by scanner/alert
+            scanners = {}
+            for trade in trades_data:
+                scanner = trade.get('scanner', 'Unknown')
+                if scanner not in scanners:
+                    scanners[scanner] = {
+                        'count': 0,
+                        'buy_count': 0,
+                        'sell_count': 0
+                    }
+                scanners[scanner]['count'] += 1
+                if trade.get('signal', '').upper() == 'BUY':
+                    scanners[scanner]['buy_count'] += 1
+                elif trade.get('signal', '').upper() == 'SELL':
+                    scanners[scanner]['sell_count'] += 1
+            
+            # Create the message
+            message = f"📊 <b>Trading Day Summary</b> - {date.today().strftime('%d %b %Y')}\n\n"
+            
+            # Add P&L summary if available
+            if pnl_data:
+                pnl_amount = pnl_data.get('total_pnl', 0)
+                pnl_percent = pnl_data.get('total_pnl_percent', 0)
+                winning_trades = pnl_data.get('winning_trades', 0)
+                losing_trades = pnl_data.get('losing_trades', 0)
+                
+                # Determine emoji based on P&L
+                if pnl_amount > 0:
+                    pnl_emoji = "🟢📈"
+                elif pnl_amount < 0:
+                    pnl_emoji = "🔴📉"
+                else:
+                    pnl_emoji = "⚪️"
+                
+                message += f"<b>Notional P&L:</b> {pnl_emoji} ₹{pnl_amount:.2f} ({pnl_percent:.2f}%)\n"
+                message += f"<b>Win/Loss:</b> {winning_trades}/{losing_trades}\n\n"
+            
+            # Trade count summary
+            message += f"<b>Total Trades:</b> {len(trades_data)}\n"
+            message += f"<b>Buy Orders:</b> {buy_count} (₹{buy_value:.2f})\n"
+            message += f"<b>Sell Orders:</b> {sell_count} (₹{sell_value:.2f})\n\n"
+            
+            # Scanner summary
+            message += "<b>Scanner Stats:</b>\n"
+            for scanner, stats in scanners.items():
+                message += f"- <b>{scanner}</b>: {stats['count']} trades ({stats['buy_count']} buy, {stats['sell_count']} sell)\n"
+            
+            # List of all trades with P&L
+            message += "\n<b>Today's Trades:</b>\n"
+            trades_to_show = trades_data[:10]  # Show only the first 10 trades to avoid message length limits
+            
+            # Add P&L data to trades if available
+            if pnl_data and 'trades_detail' in pnl_data:
+                # Create a mapping of symbol to P&L data for quick lookup
+                pnl_map = {}
+                for trade_detail in pnl_data['trades_detail']:
+                    key = f"{trade_detail.get('symbol')}_{trade_detail.get('action')}"
+                    pnl_map[key] = trade_detail
+                
+                # Display trades with P&L info
+                for trade in trades_to_show:
+                    symbol = trade.get('stock', 'Unknown')
+                    action = trade.get('signal', 'Unknown').upper()
+                    quantity = trade.get('quantity', 0)
+                    price = trade.get('price', 0)
+                    value = trade.get('value', 0)
+                    
+                    # Get P&L info if available
+                    key = f"{symbol}_{action}"
+                    pnl_info = pnl_map.get(key, {})
+                    trade_pnl = pnl_info.get('pnl', 0)
+                    current_price = pnl_info.get('current_price', price)
+                    
+                    emoji = "🟢" if action == "BUY" else "🔴"
+                    pnl_str = ""
+                    if trade_pnl != 0:
+                        pnl_emoji = "📈" if trade_pnl > 0 else "📉"
+                        pnl_str = f" | {pnl_emoji} ₹{trade_pnl:.2f}"
+                    
+                    message += f"{emoji} {symbol}: {action} {quantity} @ ₹{price} (₹{value:.2f}){pnl_str}\n"
+            else:
+                # Display trades without P&L info
+                for trade in trades_to_show:
+                    symbol = trade.get('stock', 'Unknown')
+                    action = trade.get('signal', 'Unknown').upper()
+                    quantity = trade.get('quantity', 0)
+                    price = trade.get('price', 0)
+                    value = trade.get('value', 0)
+                    
+                    emoji = "🟢" if action == "BUY" else "🔴"
+                    message += f"{emoji} {symbol}: {action} {quantity} @ ₹{price} (₹{value:.2f})\n"
+            
+            if len(trades_data) > 10:
+                message += f"...and {len(trades_data) - 10} more trades\n"
+            
+            return self.send_message(message)
+        except Exception as e:
+            self.logger.error(f"Failed to create day summary notification: {e}")
             return False
     
     def send_test_message(self):

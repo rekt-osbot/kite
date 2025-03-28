@@ -431,6 +431,116 @@
                 padding: 10px;
             }
         }
+        
+        /* P&L specific styles */
+        .pnl-status {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .pnl-status.positive {
+            background-color: rgba(75, 192, 192, 0.1);
+            border-left: 4px solid rgba(75, 192, 192, 1);
+        }
+        
+        .pnl-status.negative {
+            background-color: rgba(255, 99, 132, 0.1);
+            border-left: 4px solid rgba(255, 99, 132, 1);
+        }
+        
+        .pnl-status.neutral {
+            background-color: rgba(200, 200, 200, 0.1);
+            border-left: 4px solid rgba(200, 200, 200, 1);
+        }
+        
+        .pnl-amount {
+            font-size: 1.8em;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+        
+        .pnl-percent {
+            font-size: 1.2em;
+            opacity: 0.8;
+        }
+        
+        .pnl-icon {
+            margin-left: auto;
+            font-size: 2em;
+        }
+        
+        .positive {
+            color: rgba(75, 192, 192, 1);
+        }
+        
+        .negative {
+            color: rgba(255, 99, 132, 1);
+        }
+        
+        .neutral {
+            color: rgba(150, 150, 150, 1);
+        }
+        
+        .pnl-stats {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.03);
+            border-radius: 8px;
+            flex: 1;
+            margin: 0 5px;
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.7;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+        
+        #pnl-chart-container {
+            margin: 20px 0;
+        }
+        
+        /* Table styles */
+        .table-responsive {
+            overflow-x: auto;
+        }
+        
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .table th, .table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .table th {
+            background-color: rgba(0, 0, 0, 0.03);
+            font-weight: bold;
+        }
+        
+        /* Loader */
+        .loader {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -505,8 +615,50 @@
                 </div>
             </div>
         </div>
+
+        <!-- P&L Card -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Notional P&L</h2>
+                <div class="card-actions">
+                    <button id="refresh-pnl" class="btn btn-sm btn-secondary">
+                        <i class="ri-refresh-line"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="pnl-summary">
+                    <div class="loader">Loading P&L data...</div>
+                </div>
+                <div id="pnl-chart-container" style="height: 250px;">
+                    <canvas id="pnl-chart"></canvas>
+                </div>
+                <div id="pnl-trades">
+                    <h3>Trade Details</h3>
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Action</th>
+                                    <th>Quantity</th>
+                                    <th>Entry</th>
+                                    <th>Current</th>
+                                    <th>P&L</th>
+                                    <th>%</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pnl-trades-body">
+                                <!-- P&L data will be inserted here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
     
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         // Format date and time nicely
         function formatDateTime(dateTimeStr) {
@@ -943,6 +1095,183 @@
             
             document.getElementById('refresh-alerts').addEventListener('click', function() {
                 fetchAlerts();
+            });
+        });
+
+        // Load P&L data
+        function loadPnL() {
+            const pnlSummary = document.getElementById('pnl-summary');
+            const pnlTradesBody = document.getElementById('pnl-trades-body');
+            
+            pnlSummary.innerHTML = '<div class="loader">Loading P&L data...</div>';
+            
+            fetch('/api/trades/pnl')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        const pnlData = data.data;
+                        
+                        // Format P&L data for display
+                        const totalPnL = pnlData.total_pnl;
+                        const totalPnLPercent = pnlData.total_pnl_percent;
+                        const tradesCount = pnlData.trades_count;
+                        const winningTrades = pnlData.winning_trades;
+                        const losingTrades = pnlData.losing_trades;
+                        
+                        // Generate summary HTML
+                        let summaryHTML = '';
+                        
+                        // PnL Status
+                        if (totalPnL > 0) {
+                            summaryHTML += `<div class="pnl-status positive">
+                                <div class="pnl-amount">₹${totalPnL.toFixed(2)}</div>
+                                <div class="pnl-percent">${totalPnLPercent.toFixed(2)}%</div>
+                                <div class="pnl-icon"><i class="ri-arrow-up-circle-fill"></i></div>
+                            </div>`;
+                        } else if (totalPnL < 0) {
+                            summaryHTML += `<div class="pnl-status negative">
+                                <div class="pnl-amount">₹${totalPnL.toFixed(2)}</div>
+                                <div class="pnl-percent">${totalPnLPercent.toFixed(2)}%</div>
+                                <div class="pnl-icon"><i class="ri-arrow-down-circle-fill"></i></div>
+                            </div>`;
+                        } else {
+                            summaryHTML += `<div class="pnl-status neutral">
+                                <div class="pnl-amount">₹${totalPnL.toFixed(2)}</div>
+                                <div class="pnl-percent">${totalPnLPercent.toFixed(2)}%</div>
+                                <div class="pnl-icon"><i class="ri-checkbox-blank-circle-fill"></i></div>
+                            </div>`;
+                        }
+                        
+                        // Win/Loss ratio
+                        const winRatio = winningTrades > 0 ? 
+                            ((winningTrades / (winningTrades + losingTrades)) * 100).toFixed(1) : 0;
+                        
+                        summaryHTML += `<div class="pnl-stats">
+                            <div class="stat-item">
+                                <div class="stat-label">Total Trades</div>
+                                <div class="stat-value">${tradesCount}</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Win / Loss</div>
+                                <div class="stat-value">${winningTrades} / ${losingTrades}</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Win Rate</div>
+                                <div class="stat-value">${winRatio}%</div>
+                            </div>
+                        </div>`;
+                        
+                        pnlSummary.innerHTML = summaryHTML;
+                        
+                        // Populate trades table
+                        let tradesHTML = '';
+                        
+                        if (pnlData.trades_detail && pnlData.trades_detail.length > 0) {
+                            pnlData.trades_detail.forEach(trade => {
+                                const pnlClass = trade.pnl > 0 ? 'positive' : (trade.pnl < 0 ? 'negative' : 'neutral');
+                                
+                                tradesHTML += `<tr>
+                                    <td>${trade.symbol}</td>
+                                    <td>${trade.action}</td>
+                                    <td>${trade.quantity}</td>
+                                    <td>₹${trade.price.toFixed(2)}</td>
+                                    <td>₹${trade.current_price.toFixed(2)}</td>
+                                    <td class="${pnlClass}">₹${trade.pnl.toFixed(2)}</td>
+                                    <td class="${pnlClass}">${trade.pnl_percent.toFixed(2)}%</td>
+                                </tr>`;
+                            });
+                        } else {
+                            tradesHTML = '<tr><td colspan="7" class="text-center">No trades found</td></tr>';
+                        }
+                        
+                        pnlTradesBody.innerHTML = tradesHTML;
+                        
+                        // Create chart
+                        createPnLChart(pnlData.trades_detail);
+                        
+                    } else {
+                        pnlSummary.innerHTML = `<div class="error-message">
+                            <i class="ri-error-warning-line"></i>
+                            Failed to load P&L data: ${data.message || 'Unknown error'}
+                        </div>`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading P&L data:', error);
+                    pnlSummary.innerHTML = `<div class="error-message">
+                        <i class="ri-error-warning-line"></i>
+                        Error loading P&L data. Please try again.
+                    </div>`;
+                });
+        }
+        
+        // Create P&L chart
+        function createPnLChart(tradesDetail) {
+            if (!tradesDetail || tradesDetail.length === 0) return;
+            
+            // Prepare data for chart
+            const symbols = [];
+            const pnlValues = [];
+            const backgroundColors = [];
+            
+            tradesDetail.forEach(trade => {
+                symbols.push(trade.symbol);
+                pnlValues.push(trade.pnl);
+                backgroundColors.push(trade.pnl > 0 ? 'rgba(75, 192, 192, 0.6)' : 'rgba(255, 99, 132, 0.6)');
+            });
+            
+            // Get canvas element
+            const ctx = document.getElementById('pnl-chart').getContext('2d');
+            
+            // Check if chart already exists
+            if (window.pnlChart) {
+                window.pnlChart.destroy();
+            }
+            
+            // Create chart
+            window.pnlChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: symbols,
+                    datasets: [{
+                        label: 'P&L Amount (₹)',
+                        data: pnlValues,
+                        backgroundColor: backgroundColors,
+                        borderColor: backgroundColors.map(color => color.replace('0.6', '1')),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(200, 200, 200, 0.1)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Add event listener for refresh button
+        document.addEventListener('DOMContentLoaded', function() {
+            loadPnL();
+            
+            document.getElementById('refresh-pnl').addEventListener('click', function() {
+                loadPnL();
             });
         });
     </script>

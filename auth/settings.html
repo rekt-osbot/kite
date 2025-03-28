@@ -483,6 +483,9 @@
                     <button type="button" id="test-telegram" class="btn btn-secondary">
                         <i class="ri-send-plane-line"></i> Test Notification
                     </button>
+                    <button type="button" id="trigger-day-summary" class="btn btn-secondary">
+                        <i class="ri-file-chart-line"></i> Generate Day Summary
+                    </button>
                     <button type="submit" class="btn btn-primary">
                         <i class="ri-save-line"></i> Save Settings
                     </button>
@@ -773,18 +776,37 @@
             showTradingSettingsMessage('success', 'Trading settings reset to defaults');
         }
         
-        // Initialize everything when the page loads
+        // Function to trigger day summary
+        function triggerDaySummary() {
+            fetch('/api/telegram/day-summary')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showTelegramSettingsMessage('success', data.message);
+                    } else {
+                        showTelegramSettingsMessage('error', 'Failed to send day summary: ' + (data.message || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error triggering day summary:', error);
+                    showTelegramSettingsMessage('error', 'Error sending day summary. Please try again.');
+                });
+        }
+        
+        // Add event listeners when the page loads
         document.addEventListener('DOMContentLoaded', function() {
+            // Update auth status
             updateAuthStatus();
+            
+            // Load settings
             loadTradingSettings();
             loadTelegramSettings();
             
-            // Set up form submission handlers
+            // Add event listeners
             document.getElementById('trading-settings-form').addEventListener('submit', saveTradingSettings);
             document.getElementById('telegram-settings-form').addEventListener('submit', saveTelegramSettings);
-            
-            // Set up button handlers
             document.getElementById('test-telegram').addEventListener('click', testTelegramNotification);
+            document.getElementById('trigger-day-summary').addEventListener('click', triggerDaySummary);
             document.getElementById('reset-trading-settings').addEventListener('click', resetTradingSettings);
         });
     </script>

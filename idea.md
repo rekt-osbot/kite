@@ -1,39 +1,12 @@
 # NSE India API Integration Plan
 
 ## Overview
-This document outlines our plan to integrate the NSE India API into our main application to fetch real-time stock quotes and market data. The integration will enable us to build trading features, market analysis tools, and portfolio tracking.
+This document outlines our plan to integrate the NSE India API into our main application to fetch real-time stock quotes and market data. The integration will enable us to build trading features.
 
 ## Goals
 1. Implement a robust API wrapper for NSE India data
 2. Create a caching mechanism to respect rate limits
 3. Develop core data models for stock information
-4. Design a flexible architecture for future expansion
-
-## Implementation Phases
-
-### Phase 1: Core API Integration
-- Set up the NSE package and configure download folders
-- Create a service layer to abstract API interactions
-- Implement basic error handling and retry mechanisms
-- Build initial data models for quotes and market information
-
-### Phase 2: Data Management
-- Design a caching strategy to minimize API calls
-- Implement a database schema for storing market data
-- Create background jobs for periodic data updates
-- Add data validation and transformation utilities
-
-### Phase 3: Feature Development
-- Build a dashboard for market overview
-- Implement watchlist functionality
-- Create stock detail views with technical indicators
-- Develop search and filtering capabilities
-
-### Phase 4: Advanced Features
-- Add portfolio tracking
-- Implement basic trading signals based on technical analysis
-- Create alerting system for price movements
-- Develop historical data visualization
 
 ## Technical Approach
 

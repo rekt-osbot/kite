@@ -2,13 +2,15 @@ import json
 import os
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from flask import Flask, request, jsonify, redirect, send_from_directory
 from dotenv import load_dotenv
 from kite_connect import KiteConnect
 from scheduler import start_scheduler
 from telegram_notifier import TelegramNotifier
 from models import db, User, AuthToken, Settings
+from apscheduler.schedulers.background import BackgroundScheduler
+from nse_api import nse_api
 
 # Configure logging to output to console
 logging.basicConfig(
@@ -42,6 +44,9 @@ kite = KiteConnect()
 
 # Initialize Telegram notifier
 telegram = TelegramNotifier()
+
+# Scheduler for periodic tasks
+scheduler = BackgroundScheduler()
 
 # Trading configuration - load from environment or database
 def load_trading_config():
@@ -642,26 +647,217 @@ def update_telegram_settings():
 
 @app.route('/api/telegram/test', methods=['POST'])
 def test_telegram():
-    """Send a test message via Telegram"""
+    """Test Telegram notification by sending a test message"""
     try:
         data = request.json
         
-        bot_token = data.get("TELEGRAM_BOT_TOKEN", "")
-        chat_id = data.get("TELEGRAM_CHAT_ID", "")
+        # Create a temporary notifier with the provided credentials
+        temp_notifier = TelegramNotifier(
+            token=data.get('TELEGRAM_BOT_TOKEN'),
+            chat_id=data.get('TELEGRAM_CHAT_ID')
+        )
         
-        test_notifier = TelegramNotifier(bot_token, chat_id)
-        
-        if not test_notifier.is_enabled():
-            return jsonify({"status": "error", "message": "Please provide both Bot Token and Chat ID"}), 400
-        
-        result = test_notifier.send_test_message()
+        # Send a test message
+        result = temp_notifier.send_test_message()
         
         if result:
-            return jsonify({"status": "success", "message": "Test message sent successfully"})
+            return jsonify({"status": "success", "message": "Test notification sent successfully"})
         else:
-            return jsonify({"status": "error", "message": "Failed to send test message. Check your credentials and network connection."}), 500
+            return jsonify({"status": "error", "message": "Failed to send test notification"})
     except Exception as e:
-        logger.error(f"Error sending test Telegram message: {e}")
+        logger.error(f"Error testing Telegram notification: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+def calculate_notional_pnl(trades):
+    """
+    Calculate notional profit/loss for today's trades based on current market prices.
+    
+    Args:
+        trades (list): List of trade details
+    
+    Returns:
+        dict: Dictionary with P&L information
+    """
+    if not trades:
+        return {
+            "total_pnl": 0,
+            "total_pnl_percent": 0,
+            "winning_trades": 0,
+            "losing_trades": 0,
+            "trades_detail": []
+        }
+    
+    # Extract unique symbols from trades
+    symbols = list(set(trade.get('stock', '') for trade in trades if trade.get('stock')))
+    
+    # Fetch current prices from NSE API
+    try:
+        current_prices = {}
+        quotes = nse_api.get_quotes(symbols)
+        
+        for symbol, quote in quotes.items():
+            if quote and 'last_price' in quote:
+                current_prices[symbol] = quote['last_price']
+    except Exception as e:
+        logger.error(f"Error fetching current prices: {e}")
+        # Use an empty dict if fetching fails
+        current_prices = {}
+    
+    # Calculate P&L for each trade
+    total_investment = 0
+    total_current_value = 0
+    winning_trades = 0
+    losing_trades = 0
+    trades_detail = []
+    
+    for trade in trades:
+        try:
+            symbol = trade.get('stock', '')
+            action = trade.get('signal', '').upper()
+            price = float(trade.get('price', 0))
+            quantity = int(trade.get('quantity', 0))
+            investment = price * quantity
+            
+            # Get current price if available, otherwise use the trade price
+            current_price = current_prices.get(symbol, price)
+            current_value = current_price * quantity
+            
+            # Calculate P&L based on trade action (BUY/SELL)
+            if action == 'BUY':
+                pnl = current_value - investment
+                pnl_percent = (pnl / investment) * 100 if investment > 0 else 0
+            elif action == 'SELL':
+                pnl = investment - current_value
+                pnl_percent = (pnl / investment) * 100 if investment > 0 else 0
+            else:
+                pnl = 0
+                pnl_percent = 0
+            
+            # Count winning/losing trades
+            if pnl > 0:
+                winning_trades += 1
+            elif pnl < 0:
+                losing_trades += 1
+            
+            # Update totals
+            total_investment += investment
+            total_current_value += current_value
+            
+            # Add trade details
+            trades_detail.append({
+                'symbol': symbol,
+                'action': action,
+                'price': price,
+                'quantity': quantity,
+                'investment': investment,
+                'current_price': current_price,
+                'current_value': current_value,
+                'pnl': pnl,
+                'pnl_percent': pnl_percent
+            })
+        except Exception as e:
+            logger.error(f"Error calculating P&L for trade {trade}: {e}")
+    
+    # Calculate total P&L
+    total_pnl = total_current_value - total_investment
+    total_pnl_percent = (total_pnl / total_investment) * 100 if total_investment > 0 else 0
+    
+    return {
+        "total_pnl": total_pnl,
+        "total_pnl_percent": total_pnl_percent,
+        "winning_trades": winning_trades,
+        "losing_trades": losing_trades,
+        "trades_detail": trades_detail
+    }
+
+def get_todays_trades():
+    """
+    Get all trades that were executed today from the trade log file.
+    
+    Returns:
+        list: List of trade details for today.
+    """
+    today_str = date.today().strftime("%Y-%m-%d")
+    trades = []
+    
+    try:
+        log_dir = os.path.join(os.getcwd(), 'logs')
+        log_file = os.path.join(log_dir, "trade_log.json")
+        
+        if not os.path.exists(log_file):
+            logger.warning(f"Trade log file does not exist: {log_file}")
+            return []
+        
+        with open(log_file, "r") as f:
+            for line in f:
+                try:
+                    trade = json.loads(line.strip())
+                    trade_date = trade.get("timestamp", "").split()[0]
+                    if trade_date == today_str:
+                        trades.append(trade)
+                except json.JSONDecodeError:
+                    logger.error(f"Invalid JSON in trade log: {line}")
+                    continue
+        
+        logger.info(f"Found {len(trades)} trades for today ({today_str})")
+        return trades
+    except Exception as e:
+        logger.error(f"Error reading trade log: {e}")
+        return []
+
+def send_day_summary():
+    """Send a summary of today's trading activity via Telegram"""
+    logger.info("Sending daily trading summary...")
+    
+    trades = get_todays_trades()
+    pnl_data = calculate_notional_pnl(trades)
+    
+    telegram.notify_day_summary(trades, pnl_data)
+    
+    logger.info(f"Daily summary sent with {len(trades)} trades and P&L: ₹{pnl_data['total_pnl']:.2f}")
+
+@app.route('/api/trades/pnl', methods=['GET'])
+def get_trades_pnl():
+    """Get notional P&L for today's trades"""
+    try:
+        trades = get_todays_trades()
+        pnl_data = calculate_notional_pnl(trades)
+        
+        return jsonify({
+            "status": "success", 
+            "data": {
+                "trades_count": len(trades),
+                "total_pnl": round(pnl_data["total_pnl"], 2),
+                "total_pnl_percent": round(pnl_data["total_pnl_percent"], 2),
+                "winning_trades": pnl_data["winning_trades"],
+                "losing_trades": pnl_data["losing_trades"],
+                "trades_detail": pnl_data["trades_detail"]
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error calculating P&L: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/telegram/day-summary', methods=['GET'])
+def trigger_day_summary():
+    """Manually trigger a day summary notification"""
+    try:
+        trades = get_todays_trades()
+        pnl_data = calculate_notional_pnl(trades)
+        result = telegram.notify_day_summary(trades, pnl_data)
+        
+        if result:
+            return jsonify({
+                "status": "success", 
+                "message": f"Day summary sent successfully with {len(trades)} trades"
+            })
+        else:
+            return jsonify({
+                "status": "error", 
+                "message": "Failed to send day summary notification"
+            })
+    except Exception as e:
+        logger.error(f"Error sending day summary: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
@@ -673,6 +869,10 @@ if __name__ == "__main__":
     
     # Start the auth checker scheduler
     start_scheduler()
+    
+    # Schedule the daily summary task - default at 3:30 PM IST (market close time)
+    scheduler.add_job(send_day_summary, 'cron', hour=15, minute=30, timezone='Asia/Kolkata')
+    scheduler.start()
     
     logger.info(f"Starting webhook server on port {port}")
     app.run(host="0.0.0.0", port=port, debug=debug) 
