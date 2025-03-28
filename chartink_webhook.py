@@ -670,10 +670,10 @@ def test_telegram():
 
 def calculate_notional_pnl(trades):
     """
-    Calculate notional profit/loss for today's trades based on current market prices.
+    Calculate notional profit/loss based on position data from Kite API.
     
     Args:
-        trades (list): List of trade details
+        trades (list): List of trade/position details
     
     Returns:
         dict: Dictionary with P&L information
@@ -687,23 +687,7 @@ def calculate_notional_pnl(trades):
             "trades_detail": []
         }
     
-    # Extract unique symbols from trades
-    symbols = list(set(trade.get('stock', '') for trade in trades if trade.get('stock')))
-    
-    # Fetch current prices from NSE API
-    try:
-        current_prices = {}
-        quotes = nse_api.get_quotes(symbols)
-        
-        for symbol, quote in quotes.items():
-            if quote and 'last_price' in quote:
-                current_prices[symbol] = quote['last_price']
-    except Exception as e:
-        logger.error(f"Error fetching current prices: {e}")
-        # Use an empty dict if fetching fails
-        current_prices = {}
-    
-    # Calculate P&L for each trade
+    # If trades are from Kite positions API, they already have P&L information
     total_investment = 0
     total_current_value = 0
     winning_trades = 0
@@ -718,22 +702,35 @@ def calculate_notional_pnl(trades):
             quantity = int(trade.get('quantity', 0))
             investment = price * quantity
             
-            # Get current price if available, otherwise use the trade price
-            current_price = current_prices.get(symbol, price)
-            current_value = current_price * quantity
-            
-            # Calculate P&L based on trade action (BUY/SELL)
-            if action == 'BUY':
-                pnl = current_value - investment
-                pnl_percent = (pnl / investment) * 100 if investment > 0 else 0
-            elif action == 'SELL':
-                pnl = investment - current_value
-                pnl_percent = (pnl / investment) * 100 if investment > 0 else 0
+            # If direct PnL is available from Kite API, use it
+            if 'pnl' in trade:
+                pnl = float(trade.get('pnl', 0))
+                # For sell positions, the PnL logic is reversed in display
+                if action == 'SELL':
+                    pnl = -pnl
             else:
-                pnl = 0
-                pnl_percent = 0
+                # Use calculated P&L from NSE API if no direct PnL
+                current_price = float(trade.get('last_price', price))
+                current_value = current_price * quantity
+                
+                if action == 'BUY':
+                    pnl = current_value - investment
+                elif action == 'SELL':
+                    pnl = investment - current_value
+                else:
+                    pnl = 0
             
-            # Count winning/losing trades
+            # If we have unrealized and realized P&L from Kite
+            unrealized = float(trade.get('unrealized', 0))
+            realized = float(trade.get('realized', 0))
+            
+            # Calculate current value based on investment and P&L
+            current_value = investment + pnl
+            
+            # Calculate P&L percentage
+            pnl_percent = (pnl / investment) * 100 if investment > 0 else 0
+            
+            # Determine if winning or losing trade
             if pnl > 0:
                 winning_trades += 1
             elif pnl < 0:
@@ -742,6 +739,12 @@ def calculate_notional_pnl(trades):
             # Update totals
             total_investment += investment
             total_current_value += current_value
+            
+            # Get current price - either from position data or calculate it
+            if 'last_price' in trade:
+                current_price = float(trade.get('last_price', 0))
+            else:
+                current_price = price + (pnl / quantity) if quantity > 0 else price
             
             # Add trade details
             trades_detail.append({
@@ -753,7 +756,9 @@ def calculate_notional_pnl(trades):
                 'current_price': current_price,
                 'current_value': current_value,
                 'pnl': pnl,
-                'pnl_percent': pnl_percent
+                'pnl_percent': pnl_percent,
+                'unrealized': unrealized,
+                'realized': realized
             })
         except Exception as e:
             logger.error(f"Error calculating P&L for trade {trade}: {e}")
@@ -772,37 +777,73 @@ def calculate_notional_pnl(trades):
 
 def get_todays_trades():
     """
-    Get all trades that were executed today from the trade log file.
+    Get all trades that were executed today from Kite positions API instead of local log file.
     
     Returns:
         list: List of trade details for today.
     """
-    today_str = date.today().strftime("%Y-%m-%d")
+    logger.info("Fetching positions from Kite API...")
+    
+    if not authenticate_kite():
+        logger.error("Kite authentication failed, cannot fetch positions")
+        return []
+    
     trades = []
     
     try:
-        log_dir = os.path.join(os.getcwd(), 'logs')
-        log_file = os.path.join(log_dir, "trade_log.json")
+        # Fetch positions from Kite API
+        positions = kite.get_positions()
         
-        if not os.path.exists(log_file):
-            logger.warning(f"Trade log file does not exist: {log_file}")
+        if not positions or 'net' not in positions:
+            logger.warning("No positions data available from Kite API")
             return []
         
-        with open(log_file, "r") as f:
-            for line in f:
-                try:
-                    trade = json.loads(line.strip())
-                    trade_date = trade.get("timestamp", "").split()[0]
-                    if trade_date == today_str:
-                        trades.append(trade)
-                except json.JSONDecodeError:
-                    logger.error(f"Invalid JSON in trade log: {line}")
-                    continue
+        # Process the positions data
+        for position in positions['net']:
+            # Extract relevant information from position
+            symbol = position.get('tradingsymbol', '')
+            exchange = position.get('exchange', '')
+            
+            # Format symbol with exchange prefix if not already there
+            if not symbol.startswith("NSE:") and not symbol.startswith("NFO:"):
+                if exchange:
+                    symbol = f"{exchange}:{symbol}"
+            
+            # Determine if this is a buy or sell position based on quantity
+            quantity = position.get('quantity', 0)
+            action = "BUY" if quantity > 0 else "SELL"
+            
+            # If quantity is negative (short position), make it positive for display
+            quantity = abs(quantity)
+            
+            # Get price details
+            price = position.get('average_price', 0)
+            last_price = position.get('last_price', 0)
+            
+            # Calculate trade value
+            value = price * quantity
+            
+            # Create trade object
+            trade = {
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "stock": symbol,
+                "signal": action,
+                "price": price,
+                "quantity": quantity,
+                "value": value,
+                "scanner": "Kite Positions",  # Default scanner name
+                "order_id": "",               # Not available from positions API
+                "pnl": position.get('pnl', 0),
+                "unrealized": position.get('unrealised', 0),
+                "realized": position.get('realised', 0)
+            }
+            
+            trades.append(trade)
         
-        logger.info(f"Found {len(trades)} trades for today ({today_str})")
+        logger.info(f"Found {len(trades)} positions from Kite API")
         return trades
     except Exception as e:
-        logger.error(f"Error reading trade log: {e}")
+        logger.error(f"Error fetching positions from Kite API: {e}")
         return []
 
 def send_day_summary():

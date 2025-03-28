@@ -190,10 +190,10 @@ class TelegramNotifier:
     
     def notify_day_summary(self, trades_data, pnl_data=None):
         """
-        Send a notification with daily trading summary and P&L information.
+        Send a notification with daily trading summary and P&L information based on positions data.
         
         Args:
-            trades_data (list): List of trade details for the day.
+            trades_data (list): List of position details from Kite API.
             pnl_data (dict): Dictionary with P&L information, if available.
         
         Returns:
@@ -201,19 +201,19 @@ class TelegramNotifier:
         """
         try:
             if not trades_data:
-                message = f"📊 <b>Trading Day Summary</b> - {date.today().strftime('%d %b %Y')}\n\n"
-                message += "No trades were executed today."
+                message = f"📊 <b>Portfolio Summary</b> - {date.today().strftime('%d %b %Y')}\n\n"
+                message += "No active positions found."
                 return self.send_message(message)
             
-            # Count buy and sell trades
+            # Count buy and sell positions
             buy_count = sum(1 for trade in trades_data if trade.get('signal', '').upper() == 'BUY')
             sell_count = sum(1 for trade in trades_data if trade.get('signal', '').upper() == 'SELL')
             
-            # Calculate total value of buy and sell trades
+            # Calculate total value of buy and sell positions
             buy_value = sum(trade.get('value', 0) for trade in trades_data if trade.get('signal', '').upper() == 'BUY')
             sell_value = sum(trade.get('value', 0) for trade in trades_data if trade.get('signal', '').upper() == 'SELL')
             
-            # Group trades by scanner/alert
+            # Group positions by scanner/alert
             scanners = {}
             for trade in trades_data:
                 scanner = trade.get('scanner', 'Unknown')
@@ -230,7 +230,7 @@ class TelegramNotifier:
                     scanners[scanner]['sell_count'] += 1
             
             # Create the message
-            message = f"📊 <b>Trading Day Summary</b> - {date.today().strftime('%d %b %Y')}\n\n"
+            message = f"📊 <b>Portfolio Summary</b> - {date.today().strftime('%d %b %Y')}\n\n"
             
             # Add P&L summary if available
             if pnl_data:
@@ -247,24 +247,26 @@ class TelegramNotifier:
                 else:
                     pnl_emoji = "⚪️"
                 
-                message += f"<b>Notional P&L:</b> {pnl_emoji} ₹{pnl_amount:.2f} ({pnl_percent:.2f}%)\n"
+                message += f"<b>Portfolio P&L:</b> {pnl_emoji} ₹{pnl_amount:.2f} ({pnl_percent:.2f}%)\n"
                 message += f"<b>Win/Loss:</b> {winning_trades}/{losing_trades}\n\n"
             
-            # Trade count summary
-            message += f"<b>Total Trades:</b> {len(trades_data)}\n"
-            message += f"<b>Buy Orders:</b> {buy_count} (₹{buy_value:.2f})\n"
-            message += f"<b>Sell Orders:</b> {sell_count} (₹{sell_value:.2f})\n\n"
+            # Position count summary
+            message += f"<b>Total Positions:</b> {len(trades_data)}\n"
+            message += f"<b>Long Positions:</b> {buy_count} (₹{buy_value:.2f})\n"
+            message += f"<b>Short Positions:</b> {sell_count} (₹{sell_value:.2f})\n\n"
             
             # Scanner summary
-            message += "<b>Scanner Stats:</b>\n"
-            for scanner, stats in scanners.items():
-                message += f"- <b>{scanner}</b>: {stats['count']} trades ({stats['buy_count']} buy, {stats['sell_count']} sell)\n"
+            if len(scanners) > 1:  # Only show if there's more than one scanner
+                message += "<b>Scanner Stats:</b>\n"
+                for scanner, stats in scanners.items():
+                    message += f"- <b>{scanner}</b>: {stats['count']} positions ({stats['buy_count']} long, {stats['sell_count']} short)\n"
+                message += "\n"
             
-            # List of all trades with P&L
-            message += "\n<b>Today's Trades:</b>\n"
-            trades_to_show = trades_data[:10]  # Show only the first 10 trades to avoid message length limits
+            # List of all positions with P&L
+            message += "<b>Current Positions:</b>\n"
+            positions_to_show = trades_data[:10]  # Show only the first 10 positions to avoid message length limits
             
-            # Add P&L data to trades if available
+            # Add P&L data to positions if available
             if pnl_data and 'trades_detail' in pnl_data:
                 # Create a mapping of symbol to P&L data for quick lookup
                 pnl_map = {}
@@ -272,19 +274,16 @@ class TelegramNotifier:
                     key = f"{trade_detail.get('symbol')}_{trade_detail.get('action')}"
                     pnl_map[key] = trade_detail
                 
-                # Display trades with P&L info
-                for trade in trades_to_show:
-                    symbol = trade.get('stock', 'Unknown')
-                    action = trade.get('signal', 'Unknown').upper()
-                    quantity = trade.get('quantity', 0)
-                    price = trade.get('price', 0)
-                    value = trade.get('value', 0)
+                # Display positions with P&L info
+                for position in positions_to_show:
+                    symbol = position.get('stock', 'Unknown')
+                    action = position.get('signal', 'Unknown').upper()
+                    quantity = position.get('quantity', 0)
+                    price = position.get('price', 0)
+                    value = position.get('value', 0)
                     
-                    # Get P&L info if available
-                    key = f"{symbol}_{action}"
-                    pnl_info = pnl_map.get(key, {})
-                    trade_pnl = pnl_info.get('pnl', 0)
-                    current_price = pnl_info.get('current_price', price)
+                    # Get P&L info directly from position
+                    trade_pnl = position.get('pnl', 0)
                     
                     emoji = "🟢" if action == "BUY" else "🔴"
                     pnl_str = ""
@@ -292,21 +291,21 @@ class TelegramNotifier:
                         pnl_emoji = "📈" if trade_pnl > 0 else "📉"
                         pnl_str = f" | {pnl_emoji} ₹{trade_pnl:.2f}"
                     
-                    message += f"{emoji} {symbol}: {action} {quantity} @ ₹{price} (₹{value:.2f}){pnl_str}\n"
+                    message += f"{emoji} {symbol}: {action} {quantity} @ ₹{price:.2f} (₹{value:.2f}){pnl_str}\n"
             else:
-                # Display trades without P&L info
-                for trade in trades_to_show:
-                    symbol = trade.get('stock', 'Unknown')
-                    action = trade.get('signal', 'Unknown').upper()
-                    quantity = trade.get('quantity', 0)
-                    price = trade.get('price', 0)
-                    value = trade.get('value', 0)
+                # Display positions without P&L info
+                for position in positions_to_show:
+                    symbol = position.get('stock', 'Unknown')
+                    action = position.get('signal', 'Unknown').upper()
+                    quantity = position.get('quantity', 0)
+                    price = position.get('price', 0)
+                    value = position.get('value', 0)
                     
                     emoji = "🟢" if action == "BUY" else "🔴"
-                    message += f"{emoji} {symbol}: {action} {quantity} @ ₹{price} (₹{value:.2f})\n"
+                    message += f"{emoji} {symbol}: {action} {quantity} @ ₹{price:.2f} (₹{value:.2f})\n"
             
             if len(trades_data) > 10:
-                message += f"...and {len(trades_data) - 10} more trades\n"
+                message += f"...and {len(trades_data) - 10} more positions\n"
             
             return self.send_message(message)
         except Exception as e:

@@ -619,7 +619,7 @@
         <!-- P&L Card -->
         <div class="card">
             <div class="card-header">
-                <h2>Notional P&L</h2>
+                <h2>Portfolio P&L</h2>
                 <div class="card-actions">
                     <button id="refresh-pnl" class="btn btn-sm btn-secondary">
                         <i class="ri-refresh-line"></i> Refresh
@@ -628,22 +628,22 @@
             </div>
             <div class="card-body">
                 <div id="pnl-summary">
-                    <div class="loader">Loading P&L data...</div>
+                    <div class="loader">Loading Portfolio data...</div>
                 </div>
                 <div id="pnl-chart-container" style="height: 250px;">
                     <canvas id="pnl-chart"></canvas>
                 </div>
                 <div id="pnl-trades">
-                    <h3>Trade Details</h3>
+                    <h3>Position Details</h3>
                     <div class="table-responsive">
                         <table class="table">
                             <thead>
                                 <tr>
                                     <th>Symbol</th>
-                                    <th>Action</th>
+                                    <th>Type</th>
                                     <th>Quantity</th>
-                                    <th>Entry</th>
-                                    <th>Current</th>
+                                    <th>Avg. Price</th>
+                                    <th>Last Price</th>
                                     <th>P&L</th>
                                     <th>%</th>
                                 </tr>
@@ -1103,7 +1103,7 @@
             const pnlSummary = document.getElementById('pnl-summary');
             const pnlTradesBody = document.getElementById('pnl-trades-body');
             
-            pnlSummary.innerHTML = '<div class="loader">Loading P&L data...</div>';
+            pnlSummary.innerHTML = '<div class="loader">Loading Portfolio data...</div>';
             
             fetch('/api/trades/pnl')
                 .then(response => response.json())
@@ -1148,7 +1148,7 @@
                         
                         summaryHTML += `<div class="pnl-stats">
                             <div class="stat-item">
-                                <div class="stat-label">Total Trades</div>
+                                <div class="stat-label">Total Positions</div>
                                 <div class="stat-value">${tradesCount}</div>
                             </div>
                             <div class="stat-item">
@@ -1170,7 +1170,18 @@
                             pnlData.trades_detail.forEach(trade => {
                                 const pnlClass = trade.pnl > 0 ? 'positive' : (trade.pnl < 0 ? 'negative' : 'neutral');
                                 
-                                tradesHTML += `<tr>
+                                // Calculate realized and unrealized if available
+                                let additionalInfo = '';
+                                if (trade.unrealized !== undefined && trade.realized !== undefined) {
+                                    const unrealized = parseFloat(trade.unrealized);
+                                    const realized = parseFloat(trade.realized);
+                                    
+                                    if (unrealized !== 0 || realized !== 0) {
+                                        additionalInfo = `data-toggle="tooltip" title="Unrealized: ₹${unrealized.toFixed(2)}, Realized: ₹${realized.toFixed(2)}"`;
+                                    }
+                                }
+                                
+                                tradesHTML += `<tr ${additionalInfo}>
                                     <td>${trade.symbol}</td>
                                     <td>${trade.action}</td>
                                     <td>${trade.quantity}</td>
@@ -1181,13 +1192,18 @@
                                 </tr>`;
                             });
                         } else {
-                            tradesHTML = '<tr><td colspan="7" class="text-center">No trades found</td></tr>';
+                            tradesHTML = '<tr><td colspan="7" class="text-center">No positions found</td></tr>';
                         }
                         
                         pnlTradesBody.innerHTML = tradesHTML;
                         
                         // Create chart
                         createPnLChart(pnlData.trades_detail);
+                        
+                        // Initialize tooltips if Bootstrap is available
+                        if (typeof $().tooltip === 'function') {
+                            $('[data-toggle="tooltip"]').tooltip();
+                        }
                         
                     } else {
                         pnlSummary.innerHTML = `<div class="error-message">
@@ -1260,6 +1276,20 @@
                     plugins: {
                         legend: {
                             display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const trade = tradesDetail[context.dataIndex];
+                                    let label = `P&L: ₹${context.raw.toFixed(2)}`;
+                                    
+                                    if (trade.unrealized !== undefined && trade.realized !== undefined) {
+                                        label += ` (Unrealized: ₹${trade.unrealized.toFixed(2)}, Realized: ₹${trade.realized.toFixed(2)})`;
+                                    }
+                                    
+                                    return label;
+                                }
+                            }
                         }
                     }
                 }
