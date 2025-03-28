@@ -383,9 +383,16 @@ def process_chartink_alert(data):
             # Send trade notification to Telegram
             telegram.notify_trade(action, stock, quantity, price, order_id)
             
-            # Append to trade log file
-            with open("trade_log.json", "a") as f:
-                f.write(json.dumps(trade_details) + "\n")
+            # Append to trade log file (use a path that's writable in Railway)
+            try:
+                log_dir = os.path.join(os.getcwd(), 'logs')
+                os.makedirs(log_dir, exist_ok=True)
+                log_file = os.path.join(log_dir, "trade_log.json")
+                
+                with open(log_file, "a") as f:
+                    f.write(json.dumps(trade_details) + "\n")
+            except Exception as e:
+                logger.error(f"Error writing to trade log: {e}")
             
             success_count += 1
             logger.info(f"Successfully processed {stock}")
@@ -505,6 +512,9 @@ def get_settings():
 def update_trading_settings():
     """Update trading settings"""
     try:
+        # Declare globals at the beginning of the function
+        global DEFAULT_QUANTITY, MAX_TRADE_VALUE, STOP_LOSS_PERCENT, TARGET_PERCENT
+        
         data = request.json
         
         # Validate input data
@@ -535,7 +545,6 @@ def update_trading_settings():
             db.session.commit()
         
         # Update global variables
-        global DEFAULT_QUANTITY, MAX_TRADE_VALUE, STOP_LOSS_PERCENT, TARGET_PERCENT
         DEFAULT_QUANTITY = default_quantity
         MAX_TRADE_VALUE = max_trade_value
         STOP_LOSS_PERCENT = stop_loss_percent
