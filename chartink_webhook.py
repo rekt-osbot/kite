@@ -51,12 +51,14 @@ def load_trading_config():
         max_trade_value = Settings.get_value('MAX_TRADE_VALUE', os.getenv("MAX_TRADE_VALUE", "5000"))
         stop_loss_percent = Settings.get_value('STOP_LOSS_PERCENT', os.getenv("STOP_LOSS_PERCENT", "2"))
         target_percent = Settings.get_value('TARGET_PERCENT', os.getenv("TARGET_PERCENT", "4"))
+        max_position_size = Settings.get_value('MAX_POSITION_SIZE', os.getenv("MAX_POSITION_SIZE", "5000"))
         
         return {
             'DEFAULT_QUANTITY': int(default_quantity),
             'MAX_TRADE_VALUE': float(max_trade_value),
             'STOP_LOSS_PERCENT': float(stop_loss_percent),
-            'TARGET_PERCENT': float(target_percent)
+            'TARGET_PERCENT': float(target_percent),
+            'MAX_POSITION_SIZE': float(max_position_size)
         }
 
 # Initialize trading configuration
@@ -65,6 +67,7 @@ DEFAULT_QUANTITY = config['DEFAULT_QUANTITY']
 MAX_TRADE_VALUE = config['MAX_TRADE_VALUE']
 STOP_LOSS_PERCENT = config['STOP_LOSS_PERCENT']
 TARGET_PERCENT = config['TARGET_PERCENT']
+MAX_POSITION_SIZE = config['MAX_POSITION_SIZE']
 
 # Store received alerts in memory (cleared on restart)
 # In production, consider using a database
@@ -220,6 +223,37 @@ def place_order(symbol, transaction_type, quantity, order_type="MARKET", price=0
         elif "NSE:" in symbol:
             symbol = symbol.replace("NSE:", "")
         
+        # For BUY orders, if using MARKET, convert to LIMIT orders with a competitive price
+        # This helps avoid slippage from wide bid-ask spreads
+        if transaction_type == "BUY" and order_type == "MARKET":
+            try:
+                # Get current market depth to find the best bid and ask prices
+                market_data = kite.get_quote(f"{exchange}:{symbol}")
+                if market_data:
+                    stock_data = market_data.get(f"{exchange}:{symbol}", {})
+                    depth = stock_data.get("depth", {})
+                    
+                    if depth and "buy" in depth and "sell" in depth:
+                        buy_orders = depth["buy"]
+                        sell_orders = depth["sell"]
+                        
+                        if buy_orders and sell_orders:
+                            # Find the highest bid and lowest ask
+                            highest_bid = buy_orders[0]["price"]
+                            lowest_ask = sell_orders[0]["price"]
+                            
+                            # Set our price slightly above the highest bid 
+                            # but below the lowest ask to avoid overpaying
+                            bid_ask_spread = lowest_ask - highest_bid
+                            
+                            if bid_ask_spread > 0:
+                                # If spread is significant, place order at 80% of spread above highest bid
+                                price = highest_bid + (bid_ask_spread * 0.8)
+                                order_type = "LIMIT"
+                                logger.info(f"Converting to LIMIT order with price {price} for {symbol}")
+            except Exception as e:
+                logger.warning(f"Could not fetch market depth for {symbol}: {e}. Using MARKET order.")
+        
         # Place the order
         order_params = {
             "tradingsymbol": symbol,
@@ -227,22 +261,33 @@ def place_order(symbol, transaction_type, quantity, order_type="MARKET", price=0
             "transaction_type": transaction_type,  # BUY or SELL
             "quantity": quantity,
             "order_type": order_type,  # MARKET, LIMIT, etc.
-            "product": "MIS"  # MIS, CNC, etc.
+            "product": "CNC"  # Using CNC (delivery) instead of MIS (intraday)
         }
         
         # Add price for LIMIT orders
         if order_type == "LIMIT" and price > 0:
             order_params["price"] = price
         
-        # Add trigger price for SL orders
+        # Add trigger price for SL orders with proper range
         if order_type == "SL" and price > 0:
-            order_params["price"] = price
-            # Set trigger price slightly below for buy SL and slightly above for sell SL
-            trigger_offset = 0.05 * price
-            if transaction_type == "BUY":
-                order_params["trigger_price"] = round(price - trigger_offset, 1)
+            # Calculate permissible range based on exchange requirements
+            # For NSE equity, typically 3% for most stocks
+            if transaction_type == "SELL":
+                # For stop-loss sell orders, trigger price should be lower
+                trigger_price = round(price * 0.97, 1)  # 3% below limit price
+                order_params["trigger_price"] = trigger_price
+                # Limit price should be slightly below trigger price to ensure execution
+                order_params["price"] = round(trigger_price * 0.99, 1)
+                logger.info(f"SL SELL order configured - Trigger price: {trigger_price}, Limit price: {order_params['price']}")
             else:
-                order_params["trigger_price"] = round(price + trigger_offset, 1)
+                # For stop-loss buy orders, trigger price should be higher
+                trigger_price = round(price * 1.03, 1)  # 3% above limit price
+                order_params["trigger_price"] = trigger_price
+                # Limit price should be slightly above trigger price
+                order_params["price"] = round(trigger_price * 1.01, 1)
+                logger.info(f"SL BUY order configured - Trigger price: {trigger_price}, Limit price: {order_params['price']}")
+        
+        logger.info(f"Placing order: {json.dumps(order_params)}")
         
         order_id = kite.place_order(
             variety="regular",
@@ -258,6 +303,25 @@ def place_order(symbol, transaction_type, quantity, order_type="MARKET", price=0
 def process_chartink_alert(data):
     """Process the ChartInk alert data and place orders if appropriate"""
     logger.info(f"Processing ChartInk alert: {json.dumps(data)}")
+    
+    # Check if authentication is valid
+    if not authenticate_kite():
+        logger.error("Kite authentication failed, cannot process alert")
+        return False
+    
+    # Get available funds first
+    try:
+        margins = kite.get_margins()
+        available_funds = margins.get('equity', {}).get('available', {}).get('cash', 0)
+        logger.info(f"Available funds: ₹{available_funds}")
+        
+        if available_funds <= 0:
+            logger.error(f"Insufficient funds available (₹{available_funds}), cannot place orders")
+            telegram.send_message(f"⚠️ <b>Alert Received but Insufficient Funds</b>\nAvailable: ₹{available_funds}")
+            return False
+    except Exception as e:
+        logger.error(f"Error checking available funds: {e}")
+        # Continue with the process but log the error
     
     # Extract alert data
     alert_name = data.get('alert_name', 'Unknown Alert')
@@ -315,6 +379,7 @@ def process_chartink_alert(data):
     
     success_count = 0
     error_count = 0
+    funds_used = 0
     
     # Process each stock in the alert
     for i, stock in enumerate(stocks):
@@ -327,10 +392,25 @@ def process_chartink_alert(data):
             
             logger.info(f"Processing {stock} with {action} at price {price}")
             
-            # Calculate quantity based on price and max trade value
-            quantity = min(DEFAULT_QUANTITY, int(MAX_TRADE_VALUE / price))
+            # Check if we have enough funds remaining (considering what we've already allocated)
+            remaining_funds = available_funds - funds_used
+            if remaining_funds < price:
+                logger.warning(f"Not enough remaining funds (₹{remaining_funds}) to place order for {stock} at ₹{price}")
+                continue
+            
+            # Position sizing: Calculate quantity based on max position size per trade
+            # Ensure it doesn't exceed available funds and follows max position size rule
+            max_position_value = min(MAX_POSITION_SIZE, remaining_funds)
+            quantity = int(max_position_value / price)
+            
+            # Fallback to default quantity if calculation fails or results in zero
             if quantity <= 0:
-                quantity = 1
+                quantity = DEFAULT_QUANTITY
+                logger.warning(f"Using default quantity ({DEFAULT_QUANTITY}) for {stock}")
+            
+            # Log the position sizing calculation
+            logger.info(f"Position sizing for {stock}: Max position size = ₹{MAX_POSITION_SIZE}, " +
+                        f"Price = ₹{price}, Calculated quantity = {quantity}")
             
             # Prepend NSE: to stock if not already present
             if not (stock.startswith("NSE:") or stock.startswith("NFO:")):
@@ -343,11 +423,14 @@ def process_chartink_alert(data):
                 error_count += 1
                 continue
             
-            # If it's a BUY order, place a corresponding stop-loss and target
+            # Track funds used
+            funds_used += (price * quantity)
+            logger.info(f"Allocated ₹{price * quantity:.2f} for {stock}, total allocated: ₹{funds_used:.2f}")
+            
+            # If it's a BUY order, place a corresponding stop-loss
             if action == "BUY":
-                # Calculate stop-loss and target prices
+                # Calculate stop-loss price
                 stop_loss_price = round(price * (1 - STOP_LOSS_PERCENT/100), 1)
-                target_price = round(price * (1 + TARGET_PERCENT/100), 1)
                 
                 # Place stop-loss order
                 sl_order_id = place_order(
@@ -358,16 +441,7 @@ def process_chartink_alert(data):
                     price=stop_loss_price
                 )
                 
-                # Place target order (limit sell)
-                target_order_id = place_order(
-                    stock, 
-                    "SELL", 
-                    quantity, 
-                    order_type="LIMIT", 
-                    price=target_price
-                )
-                
-                logger.info(f"Placed SL order: {sl_order_id} and Target order: {target_order_id} for {stock}")
+                logger.info(f"Placed SL order: {sl_order_id} for {stock}")
             
             # Log the trade details
             trade_details = {
@@ -376,6 +450,7 @@ def process_chartink_alert(data):
                 "signal": action,
                 "price": price,
                 "quantity": quantity,
+                "value": price * quantity,
                 "scanner": scan_name,
                 "order_id": order_id
             }
@@ -401,7 +476,7 @@ def process_chartink_alert(data):
             logger.error(f"Error processing stock {stock}: {e}")
             error_count += 1
     
-    logger.info(f"Alert processing complete. Success: {success_count}, Errors: {error_count}")
+    logger.info(f"Alert processing complete. Success: {success_count}, Errors: {error_count}, Total funds allocated: ₹{funds_used:.2f}")
     return success_count > 0
 
 @app.route('/webhook', methods=['POST'])
@@ -495,7 +570,8 @@ def get_settings():
                     'default_quantity': Settings.get_value('DEFAULT_QUANTITY', str(DEFAULT_QUANTITY)),
                     'max_trade_value': Settings.get_value('MAX_TRADE_VALUE', str(MAX_TRADE_VALUE)),
                     'stop_loss_percent': Settings.get_value('STOP_LOSS_PERCENT', str(STOP_LOSS_PERCENT)),
-                    'target_percent': Settings.get_value('TARGET_PERCENT', str(TARGET_PERCENT))
+                    'target_percent': Settings.get_value('TARGET_PERCENT', str(TARGET_PERCENT)),
+                    'max_position_size': Settings.get_value('MAX_POSITION_SIZE', str(MAX_POSITION_SIZE))
                 },
                 'telegram': {
                     'enabled': Settings.get_value('TELEGRAM_ENABLED', 'true'),
@@ -513,7 +589,7 @@ def update_trading_settings():
     """Update trading settings"""
     try:
         # Declare globals at the beginning of the function
-        global DEFAULT_QUANTITY, MAX_TRADE_VALUE, STOP_LOSS_PERCENT, TARGET_PERCENT
+        global DEFAULT_QUANTITY, MAX_TRADE_VALUE, STOP_LOSS_PERCENT, TARGET_PERCENT, MAX_POSITION_SIZE
         
         data = request.json
         
@@ -526,6 +602,7 @@ def update_trading_settings():
         max_trade_value = data.get('max_trade_value', MAX_TRADE_VALUE)
         stop_loss_percent = data.get('stop_loss_percent', STOP_LOSS_PERCENT)
         target_percent = data.get('target_percent', TARGET_PERCENT)
+        max_position_size = data.get('max_position_size', MAX_POSITION_SIZE)
         
         # Validate settings
         try:
@@ -533,6 +610,7 @@ def update_trading_settings():
             max_trade_value = float(max_trade_value)
             stop_loss_percent = float(stop_loss_percent)
             target_percent = float(target_percent)
+            max_position_size = float(max_position_size)
         except:
             return jsonify({"status": "error", "message": "Invalid setting values"}), 400
         
@@ -542,6 +620,7 @@ def update_trading_settings():
             Settings.set_value('MAX_TRADE_VALUE', str(max_trade_value), 'Maximum trade value')
             Settings.set_value('STOP_LOSS_PERCENT', str(stop_loss_percent), 'Stop loss percentage')
             Settings.set_value('TARGET_PERCENT', str(target_percent), 'Target percentage')
+            Settings.set_value('MAX_POSITION_SIZE', str(max_position_size), 'Maximum position size')
             db.session.commit()
         
         # Update global variables
@@ -549,6 +628,7 @@ def update_trading_settings():
         MAX_TRADE_VALUE = max_trade_value
         STOP_LOSS_PERCENT = stop_loss_percent
         TARGET_PERCENT = target_percent
+        MAX_POSITION_SIZE = max_position_size
         
         return jsonify({"status": "success", "message": "Trading settings updated"})
     except Exception as e:

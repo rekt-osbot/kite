@@ -577,13 +577,6 @@
             }
         }
 
-        // Load initial data
-        function loadData() {
-            checkAuthStatus();
-            fetchPositions();
-            fetchMargins();
-        }
-
         // Fetch current positions
         function fetchPositions() {
             const positionsContainer = document.getElementById('positions-container');
@@ -675,9 +668,117 @@
 
         // Fetch margin information
         function fetchMargins() {
-            // Rest of the margin fetching code unchanged ...
+            fetch('/api/margins')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success' && data.data) {
+                        const equity = data.data.equity || {};
+                        document.getElementById('available-margin').textContent = '₹' + (equity.available?.cash || 0).toFixed(2);
+                        document.getElementById('used-margin').textContent = '₹' + (equity.utilised?.debits || 0).toFixed(2);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching margins:', error);
+                });
+        }
+        
+        // Fetch order history
+        function fetchOrders() {
+            const ordersContainer = document.getElementById('orders-container');
+            ordersContainer.innerHTML = `
+                <div class="empty-state">
+                    <i class="ri-loader-4-line"></i>
+                    <p>Loading orders...</p>
+                </div>
+            `;
+            
+            fetch('/api/orders')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success' && data.data) {
+                        const orders = data.data;
+                        
+                        if (orders.length > 0) {
+                            ordersContainer.innerHTML = `
+                                <div class="table-container">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Order ID</th>
+                                                <th>Symbol</th>
+                                                <th>Type</th>
+                                                <th>Qty</th>
+                                                <th>Price</th>
+                                                <th>Status</th>
+                                                <th>Time</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="orders-table-body"></tbody>
+                                    </table>
+                                </div>
+                                <div class="timestamp">Last updated: ${new Date().toLocaleTimeString()}</div>
+                            `;
+                            
+                            const tableBody = document.getElementById('orders-table-body');
+                            orders.forEach(order => {
+                                const row = document.createElement('tr');
+                                const orderType = order.transaction_type === 'BUY' ? 
+                                    `<span class="badge badge-buy">BUY</span>` : 
+                                    `<span class="badge badge-sell">SELL</span>`;
+                                
+                                // Determine order status class
+                                let statusClass = '';
+                                if (['COMPLETE', 'CANCELLED', 'REJECTED'].includes(order.status)) {
+                                    statusClass = order.status === 'COMPLETE' ? 'status-complete' : 'status-rejected';
+                                } else {
+                                    statusClass = 'status-pending';
+                                }
+                                
+                                const orderTime = order.order_timestamp ? new Date(order.order_timestamp).toLocaleTimeString() : 'N/A';
+                                const orderPrice = order.price > 0 ? `₹${order.price.toFixed(2)}` : 'MARKET';
+                                
+                                row.innerHTML = `
+                                    <td>${order.order_id}</td>
+                                    <td class="symbol">${order.tradingsymbol}</td>
+                                    <td>${orderType}</td>
+                                    <td>${order.quantity}</td>
+                                    <td>${orderPrice}</td>
+                                    <td class="${statusClass}">${order.status}</td>
+                                    <td>${orderTime}</td>
+                                `;
+                                tableBody.appendChild(row);
+                            });
+                        } else {
+                            ordersContainer.innerHTML = `
+                                <div class="empty-state">
+                                    <i class="ri-file-list-3-line"></i>
+                                    <p>No orders found for today.</p>
+                                </div>
+                            `;
+                        }
+                    } else {
+                        throw new Error('Invalid response format');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching orders:', error);
+                    ordersContainer.innerHTML = `
+                        <div class="empty-state">
+                            <i class="ri-error-warning-line"></i>
+                            <p>Error loading orders. Please check your authentication.</p>
+                        </div>
+                    `;
+                });
         }
 
+        // Load initial data
+        function loadData() {
+            checkAuthStatus();
+            fetchPositions();
+            fetchOrders();
+            fetchMargins();
+        }
+        
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             loadData();
@@ -685,6 +786,11 @@
             // Refresh button functionality
             document.getElementById('refresh-positions').addEventListener('click', function() {
                 loadData();
+            });
+            
+            // Add refresh orders button functionality
+            document.getElementById('refresh-orders').addEventListener('click', function() {
+                fetchOrders();
             });
         });
     </script>

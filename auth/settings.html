@@ -396,6 +396,15 @@
                 </div>
                 
                 <div class="form-group">
+                    <label for="maxPositionSize">Max Position Size</label>
+                    <div class="input-group">
+                        <input type="number" id="maxPositionSize" min="1000" step="1000" required>
+                        <span class="input-group-addon">INR</span>
+                    </div>
+                    <small>Maximum position size for a single trade (updates daily based on market conditions)</small>
+                </div>
+                
+                <div class="form-group">
                     <label for="stopLossPercent">Stop Loss Percentage</label>
                     <div class="input-group">
                         <input type="number" id="stopLossPercent" min="0.1" max="10" step="0.1" required>
@@ -574,6 +583,7 @@
                     if (data.success) {
                         document.getElementById('defaultQuantity').value = data.settings.default_quantity || 1;
                         document.getElementById('maxTradeValue').value = data.settings.max_trade_value || 5000;
+                        document.getElementById('maxPositionSize').value = data.settings.max_position_size || 10000;
                         document.getElementById('stopLossPercent').value = data.settings.stop_loss_percent || 2;
                         document.getElementById('targetPercent').value = data.settings.target_percent || 4;
                     } else {
@@ -641,6 +651,7 @@
             const settings = {
                 default_quantity: parseInt(document.getElementById('defaultQuantity').value),
                 max_trade_value: parseInt(document.getElementById('maxTradeValue').value),
+                max_position_size: parseInt(document.getElementById('maxPositionSize').value),
                 stop_loss_percent: parseFloat(document.getElementById('stopLossPercent').value),
                 target_percent: parseFloat(document.getElementById('targetPercent').value)
             };
@@ -719,6 +730,7 @@
         function resetTradingSettings() {
             document.getElementById('defaultQuantity').value = '1';
             document.getElementById('maxTradeValue').value = '5000';
+            document.getElementById('maxPositionSize').value = '10000';
             document.getElementById('stopLossPercent').value = '2';
             document.getElementById('targetPercent').value = '4';
             

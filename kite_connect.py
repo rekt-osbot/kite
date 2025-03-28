@@ -169,6 +169,30 @@ class KiteConnect:
         
         return response.json()["data"]
     
+    def get_quote(self, instruments):
+        """
+        Get market quotes and depth for one or more instruments.
+        
+        Parameters:
+        instruments (str or list): Instrument keys (exchange:tradingsymbol) as a comma-separated string or a list
+        
+        Returns:
+        dict: Market quotes and market depth
+        """
+        if isinstance(instruments, list):
+            instruments = ",".join(instruments)
+            
+        response = requests.get(
+            f"{self.api_url}/quote",
+            params={"i": instruments},
+            headers=self.headers
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"Failed to get quotes: {response.text}")
+        
+        return response.json()["data"]
+    
     def place_order(self, variety, params):
         """
         Place an order on Zerodha Kite
