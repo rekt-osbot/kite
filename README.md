@@ -74,15 +74,23 @@ This project connects to Zerodha Kite API to fetch user profile, margin details,
      - `REDIRECT_URL`: Your Railway app URL + "/auth/redirect"
      - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (if using Telegram)
 
-4. Set Up Zerodha App:
+4. Set Up PostgreSQL Database:
+   - In your Railway project, click "+ New"
+   - Select "Database" → "PostgreSQL"
+   - Wait for the database to provision
+   - The `DATABASE_URL` environment variable will automatically be added to your project
+   - See [DATABASE_SETUP.md](DATABASE_SETUP.md) for detailed instructions
+
+5. Set Up Zerodha App:
    - Go to [Zerodha Developer Console](https://developers.kite.trade/apps)
    - Create a new app or edit your existing one
    - Set the Redirect URL to match your `REDIRECT_URL` (https://your-railway-app-url.up.railway.app/auth/redirect)
 
-5. First-time Token Authentication:
+6. First-time Token Authentication:
    - Open your Railway app URL in a browser
    - Click "Login to Zerodha" and follow the authentication process
    - After successful authentication, your webhook is ready to receive ChartInk alerts
+   - The authentication token will be stored in the database and will persist for 24 hours
 
 ## Usage
 

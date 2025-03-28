@@ -39,40 +39,16 @@ class KiteConnect:
         self.access_token = access_token
         self.headers["Authorization"] = f"token {self.api_key}:{self.access_token}"
         
-        # Update the token in .env file or environment variable
-        self._update_token(access_token)
-    
-    def _update_token(self, access_token):
-        """Update the access token in the environment or .env file"""
-        self.access_token = access_token
-        
-        # If running locally, update .env file
-        if os.path.exists('.env'):
-            self._update_env_token(access_token)
-        # If on Railway, update environment variable (this won't persist after restart)
-        # Railway actually doesn't provide a way to update env vars programmatically
-        # So we'll need the manual login process through the web interface
-    
-    def _update_env_token(self, access_token):
-        """Update the access token in the .env file"""
-        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
-        
-        with open(env_path, 'r') as file:
-            lines = file.readlines()
-        
-        with open(env_path, 'w') as file:
-            for line in lines:
-                if line.startswith('KITE_ACCESS_TOKEN='):
-                    file.write(f'KITE_ACCESS_TOKEN={access_token}\n')
-                else:
-                    file.write(line)
+        # No longer need to update .env file as we store in database
+        # The token will be retrieved from database on startup
     
     def get_login_url(self):
         """Get the Zerodha login URL for web authentication flow"""
         redirect_url = os.getenv("REDIRECT_URL", "")
         login_params = {
             "v": 3,
-            "api_key": self.api_key
+            "api_key": self.api_key,
+            "redirect_url": redirect_url
         }
         
         return f"{self.login_url}?{urlencode(login_params)}"

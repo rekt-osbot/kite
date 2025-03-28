@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from kite_connect import KiteConnect
 from scheduler import start_scheduler
 from telegram_notifier import TelegramNotifier
+from models import db, User, AuthToken, Settings
 
 # Configure logging to output to console
 logging.basicConfig(
@@ -22,29 +23,52 @@ load_dotenv()
 # Initialize Flask app
 app = Flask(__name__)
 
+# Database configuration
+database_url = os.getenv('DATABASE_URL')
+if not database_url:
+    # Local development fallback
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///kite.db'
+else:
+    # Ensure DATABASE_URL is compatible with SQLAlchemy
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db.init_app(app)
+
 # Initialize Kite Connect
 kite = KiteConnect()
 
 # Initialize Telegram notifier
 telegram = TelegramNotifier()
 
-# Trading configuration
-DEFAULT_QUANTITY = int(os.getenv("DEFAULT_QUANTITY", 1))
-MAX_TRADE_VALUE = float(os.getenv("MAX_TRADE_VALUE", 5000))
-STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", 2))
-TARGET_PERCENT = float(os.getenv("TARGET_PERCENT", 4))
+# Trading configuration - load from environment or database
+def load_trading_config():
+    """Load trading configuration from database if available, otherwise from environment"""
+    with app.app_context():
+        default_quantity = Settings.get_value('DEFAULT_QUANTITY', os.getenv("DEFAULT_QUANTITY", "1"))
+        max_trade_value = Settings.get_value('MAX_TRADE_VALUE', os.getenv("MAX_TRADE_VALUE", "5000"))
+        stop_loss_percent = Settings.get_value('STOP_LOSS_PERCENT', os.getenv("STOP_LOSS_PERCENT", "2"))
+        target_percent = Settings.get_value('TARGET_PERCENT', os.getenv("TARGET_PERCENT", "4"))
+        
+        return {
+            'DEFAULT_QUANTITY': int(default_quantity),
+            'MAX_TRADE_VALUE': float(max_trade_value),
+            'STOP_LOSS_PERCENT': float(stop_loss_percent),
+            'TARGET_PERCENT': float(target_percent)
+        }
+
+# Initialize trading configuration
+config = load_trading_config()
+DEFAULT_QUANTITY = config['DEFAULT_QUANTITY']
+MAX_TRADE_VALUE = config['MAX_TRADE_VALUE']
+STOP_LOSS_PERCENT = config['STOP_LOSS_PERCENT']
+TARGET_PERCENT = config['TARGET_PERCENT']
 
 # Store received alerts in memory (cleared on restart)
 # In production, consider using a database
 received_alerts = []
-
-# Global auth cache to reduce API calls
-auth_cache = {
-    "is_authenticated": False,
-    "user_profile": None,
-    "last_checked": None,
-    "access_token": None
-}
 
 # Authentication routes
 @app.route('/')
@@ -84,23 +108,46 @@ def auth_redirect():
         # Generate session from the request token
         session_data = kite.generate_session(request_token)
         
-        # Update auth cache
-        global auth_cache
-        auth_cache["is_authenticated"] = True
-        auth_cache["last_checked"] = datetime.now()
-        auth_cache["access_token"] = session_data.get("access_token")
-        
-        # Get and store user profile
+        # Get user profile
         try:
-            auth_cache["user_profile"] = kite.get_profile()
-        except:
-            auth_cache["user_profile"] = {"user_name": "User"}
+            profile = kite.get_profile()
+            user_id = profile.get('user_id')
+            username = profile.get('user_name')
+            email = profile.get('email')
+            
+            # Store user and token in database
+            with app.app_context():
+                # Check if user already exists
+                user = User.query.filter_by(user_id=user_id).first()
+                if not user:
+                    # Create new user
+                    user = User(user_id=user_id, username=username, email=email)
+                    db.session.add(user)
+                    db.session.commit()
+                
+                # Delete any existing tokens for this user
+                AuthToken.query.filter_by(user_id=user.id).delete()
+                
+                # Create new token with 24 hour expiration
+                token = AuthToken.create_token(
+                    user.id, 
+                    session_data.get("access_token"),
+                    expires_in_hours=24
+                )
+                
+                db.session.add(token)
+                db.session.commit()
+                
+                # Set the token in KiteConnect instance
+                kite.set_access_token(token.access_token)
+        except Exception as e:
+            logger.error(f"Error saving user data: {e}")
         
         # Notify via Telegram if enabled
         try:
-            telegram.notify_auth_status(True, auth_cache["user_profile"].get('user_name', 'Unknown'))
-        except:
-            pass
+            telegram.notify_auth_status(True, profile.get('user_name', 'Unknown'))
+        except Exception as e:
+            logger.error(f"Error sending Telegram notification: {e}")
             
         return redirect('/auth/refresh')
     except Exception as e:
@@ -110,77 +157,56 @@ def auth_redirect():
 @app.route('/auth/status')
 def auth_status():
     """Check if authenticated with Kite"""
-    global auth_cache
-    current_time = datetime.now()
-    
-    # Use cached auth status if available and checked in the last 5 minutes
-    if (auth_cache["last_checked"] and 
-        auth_cache["is_authenticated"] and 
-        current_time - auth_cache["last_checked"] < timedelta(minutes=5)):
-        # Calculate when this cache expires
-        cache_expiry = auth_cache["last_checked"] + timedelta(minutes=5)
-        
-        return jsonify({
-            "status": "success", 
-            "authenticated": True, 
-            "user": auth_cache["user_profile"]["user_name"],
-            "last_login": auth_cache["last_checked"].strftime("%Y-%m-%d %H:%M:%S"),
-            "cached": True,
-            "cache_until": cache_expiry.strftime("%Y-%m-%dT%H:%M:%S")
-        })
-    
-    # Otherwise, check with Zerodha API
     try:
-        profile = kite.get_profile()
-        
-        # Update cache
-        auth_cache["is_authenticated"] = True
-        auth_cache["user_profile"] = profile
-        auth_cache["last_checked"] = current_time
-        auth_cache["access_token"] = kite.access_token
-        
-        # Calculate when this cache will expire
-        cache_expiry = current_time + timedelta(minutes=5)
-        
-        return jsonify({
-            "status": "success", 
-            "authenticated": True, 
-            "user": profile['user_name'],
-            "last_login": current_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "cached": False,
-            "cache_until": cache_expiry.strftime("%Y-%m-%dT%H:%M:%S")
-        })
+        with app.app_context():
+            # Find the most recent valid token
+            token = AuthToken.query.order_by(AuthToken.created_at.desc()).first()
+            
+            if token and not token.is_expired:
+                # Valid token found, get user info
+                user = User.query.get(token.user_id)
+                
+                # Set token in KiteConnect instance if needed
+                if kite.access_token != token.access_token:
+                    kite.set_access_token(token.access_token)
+                
+                # Calculate expiration time
+                expiry_time = token.expires_at
+                
+                return jsonify({
+                    "status": "success", 
+                    "authenticated": True, 
+                    "user": user.username,
+                    "last_login": token.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    "expires_at": expiry_time.strftime("%Y-%m-%dT%H:%M:%S")
+                })
+            
+            # No valid token found
+            return jsonify({"status": "error", "authenticated": False})
     except Exception as e:
-        logger.debug(f"Auth status check failed: {e}")
-        auth_cache["is_authenticated"] = False
-        auth_cache["last_checked"] = current_time
-        return jsonify({"status": "error", "authenticated": False})
+        logger.error(f"Auth status check failed: {e}")
+        return jsonify({"status": "error", "authenticated": False, "message": str(e)})
 
 def authenticate_kite():
-    """Ensure Kite API is authenticated using cached token when possible"""
-    global auth_cache
-    current_time = datetime.now()
-    
-    # If we checked recently and the token was valid, return True without checking again
-    if (auth_cache["last_checked"] and 
-        auth_cache["is_authenticated"] and 
-        current_time - auth_cache["last_checked"] < timedelta(minutes=5)):
-        return True
-    
-    # Otherwise, verify with actual API call
+    """Ensure Kite API is authenticated using stored token when possible"""
     try:
-        profile = kite.get_profile()
-        
-        # Update cache
-        auth_cache["is_authenticated"] = True
-        auth_cache["user_profile"] = profile
-        auth_cache["last_checked"] = current_time
-        
-        logger.info(f"Kite API authenticated as {profile.get('user_name', 'User')}")
-        return True
+        with app.app_context():
+            # Find the most recent valid token
+            token = AuthToken.query.order_by(AuthToken.created_at.desc()).first()
+            
+            if token and not token.is_expired:
+                # Valid token found, set in KiteConnect instance
+                if kite.access_token != token.access_token:
+                    kite.set_access_token(token.access_token)
+                
+                # Get user info
+                user = User.query.get(token.user_id)
+                logger.info(f"Kite API authenticated as {user.username}")
+                return True
+            
+            # No valid token found
+            return False
     except Exception as e:
-        auth_cache["is_authenticated"] = False
-        auth_cache["last_checked"] = current_time
         logger.error(f"Kite authentication error: {e}")
         return False
 
@@ -230,172 +256,146 @@ def place_order(symbol, transaction_type, quantity, order_type="MARKET", price=0
         return None
 
 def process_chartink_alert(data):
-    """Process the alert from ChartInk"""
-    try:
-        # Extract data
-        stocks = data.get('stocks', '').split(',')
-        prices = data.get('trigger_prices', '').split(',')
-        scan_name = data.get('scan_name', '')
-        scan_url = data.get('scan_url', '')
-        alert_name = data.get('alert_name', '')
-        triggered_at = data.get('triggered_at', '')
-        action = data.get('action', '').upper()
-        
-        # Add timestamp
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Store alert in memory
-        alert_data = {
-            'scan_name': scan_name,
-            'scan_url': scan_url,
-            'alert_name': alert_name,
-            'stocks': stocks,
-            'prices': prices,
-            'triggered_at': triggered_at,
-            'timestamp': timestamp
-        }
-        
-        # Determine if it's a buy or sell signal
-        # Check explicit action field first
-        if action == 'BUY':
-            is_buy = True
-        elif action == 'SELL':
-            is_buy = False
-        else:
-            # Look for buy/sell keywords in scan and alert names
-            buy_keywords = ['buy', 'bull', 'bullish', 'long', 'breakout', 'up', 'uptrend', 'support', 'bounce', 'reversal', 'upside']
-            sell_keywords = ['sell', 'bear', 'bearish', 'short', 'breakdown', 'down', 'downtrend', 'resistance', 'fall', 'decline']
-            
-            scan_text = (scan_name + ' ' + alert_name).lower()
-            
-            # Check if any buy keywords are in the scan text
-            if any(keyword in scan_text for keyword in buy_keywords):
-                is_buy = True
-            # Check if any sell keywords are in the scan text
-            elif any(keyword in scan_text for keyword in sell_keywords):
-                is_buy = False
-            # Default to buy if no keywords match
-            else:
-                is_buy = True
-                logger.info(f"No buy/sell keywords found in scan text, defaulting to BUY")
-        
-        # Add action to the stored alert
-        transaction_type = 'BUY' if is_buy else 'SELL'
-        alert_data['action'] = transaction_type
-        received_alerts.append(alert_data)
-        
-        # Log alert info
-        logger.info(f"Received alert from scanner '{scan_name}' at {triggered_at}")
-        logger.info(f"Stocks: {stocks}")
-        logger.info(f"Prices: {prices}")
-        
-        # Notify via Telegram
-        try:
-            message = f"⚠️ *New {alert_data['action']} Alert:* {alert_name}\n" \
-                     f"*Strategy:* {scan_name}\n" \
-                     f"*Triggered at:* {triggered_at}\n\n" \
-                     f"*Stocks:*\n"
-            
-            for i, (stock, price) in enumerate(zip(stocks, prices)):
-                if i < len(prices):
-                    message += f"- {stock}: ₹{price}\n"
-            
-            telegram.send_notification(message)
-        except Exception as e:
-            logger.error(f"Failed to send Telegram notification: {e}")
-        
-        # Validate required data
-        if not stocks or not prices or len(stocks) != len(prices):
-            logger.error(f"Invalid alert data: {data}")
-            return False
-        
-        success_count = 0
-        error_count = 0
-        
-        # Process each stock in the alert
-        for i, stock in enumerate(stocks):
-            stock = stock.strip()
-            if not stock:
-                continue
-                
-            try:
-                price = float(prices[i].strip())
-                
-                logger.info(f"Processing {stock} with {transaction_type} at price {price}")
-                
-                # Calculate quantity based on price and max trade value
-                quantity = min(DEFAULT_QUANTITY, int(MAX_TRADE_VALUE / price))
-                if quantity <= 0:
-                    quantity = 1
-                
-                # Prepend NSE: to stock if not already present
-                if not (stock.startswith("NSE:") or stock.startswith("NFO:")):
-                    stock = f"NSE:{stock}"
-                
-                # Place the order
-                order_id = place_order(stock, transaction_type, quantity)
-                if not order_id:
-                    logger.error(f"Failed to place order for {stock}")
-                    error_count += 1
-                    continue
-                
-                # If it's a BUY order, place a corresponding stop-loss and target
-                if transaction_type == "BUY":
-                    # Calculate stop-loss and target prices
-                    stop_loss_price = round(price * (1 - STOP_LOSS_PERCENT/100), 1)
-                    target_price = round(price * (1 + TARGET_PERCENT/100), 1)
-                    
-                    # Place stop-loss order
-                    sl_order_id = place_order(
-                        stock, 
-                        "SELL", 
-                        quantity, 
-                        order_type="SL", 
-                        price=stop_loss_price
-                    )
-                    
-                    # Place target order (limit sell)
-                    target_order_id = place_order(
-                        stock, 
-                        "SELL", 
-                        quantity, 
-                        order_type="LIMIT", 
-                        price=target_price
-                    )
-                    
-                    logger.info(f"Placed SL order: {sl_order_id} and Target order: {target_order_id} for {stock}")
-                
-                # Log the trade details
-                trade_details = {
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "stock": stock,
-                    "signal": transaction_type,
-                    "price": price,
-                    "quantity": quantity,
-                    "scanner": scan_name,
-                    "order_id": order_id
-                }
-                
-                # Send trade notification to Telegram
-                telegram.notify_trade(trade_details)
-                
-                # Append to trade log file
-                with open("trade_log.json", "a") as f:
-                    f.write(json.dumps(trade_details) + "\n")
-                
-                success_count += 1
-                logger.info(f"Successfully processed {stock}")
-                
-            except Exception as e:
-                logger.error(f"Error processing stock {stock}: {e}")
-                error_count += 1
-        
-        logger.info(f"Alert processing complete. Success: {success_count}, Errors: {error_count}")
-        return success_count > 0
+    """Process the ChartInk alert data and place orders if appropriate"""
+    logger.info(f"Processing ChartInk alert: {json.dumps(data)}")
     
+    # Extract alert data
+    alert_name = data.get('alert_name', 'Unknown Alert')
+    scan_name = data.get('scan_name', 'Unknown Scanner')
+    stocks = data.get('stocks', [])
+    
+    # Handle both string and list formats for stocks
+    if isinstance(stocks, str):
+        stocks = [s.strip() for s in stocks.split(',') if s.strip()]
+    
+    # Get trigger prices (if available)
+    prices = data.get('trigger_prices', [])
+    if isinstance(prices, str):
+        prices = [p.strip() for p in prices.split(',') if p.strip()]
+    
+    # Ensure we have the same number of prices as stocks
+    while len(prices) < len(stocks):
+        prices.append("N/A")
+    
+    # Determine the action (BUY/SELL) based on the scan name
+    action = "BUY"  # Default
+    if any(term in scan_name.lower() for term in ["sell", "short", "bearish", "breakdown", "down"]):
+        action = "SELL"
+    
+    # Notify via Telegram
+    try:
+        telegram.notify_chartink_alert(scan_name, stocks, prices)
     except Exception as e:
-        logger.error(f"Error processing alert: {e}")
+        logger.error(f"Error sending notification: {e}")
+    
+    # Store alert in memory
+    alert_data = {
+        'scan_name': scan_name,
+        'scan_url': data.get('scan_url', ''),
+        'alert_name': alert_name,
+        'stocks': stocks,
+        'prices': prices,
+        'triggered_at': data.get('triggered_at', ''),
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    # Add action to the stored alert
+    alert_data['action'] = action
+    received_alerts.append(alert_data)
+    
+    # Log alert info
+    logger.info(f"Received alert from scanner '{scan_name}' at {alert_data['triggered_at']}")
+    logger.info(f"Stocks: {stocks}")
+    logger.info(f"Prices: {prices}")
+    
+    # Validate required data
+    if not stocks or not prices or len(stocks) != len(prices):
+        logger.error(f"Invalid alert data: {data}")
         return False
+    
+    success_count = 0
+    error_count = 0
+    
+    # Process each stock in the alert
+    for i, stock in enumerate(stocks):
+        stock = stock.strip()
+        if not stock:
+            continue
+            
+        try:
+            price = float(prices[i].strip())
+            
+            logger.info(f"Processing {stock} with {action} at price {price}")
+            
+            # Calculate quantity based on price and max trade value
+            quantity = min(DEFAULT_QUANTITY, int(MAX_TRADE_VALUE / price))
+            if quantity <= 0:
+                quantity = 1
+            
+            # Prepend NSE: to stock if not already present
+            if not (stock.startswith("NSE:") or stock.startswith("NFO:")):
+                stock = f"NSE:{stock}"
+            
+            # Place the order
+            order_id = place_order(stock, action, quantity)
+            if not order_id:
+                logger.error(f"Failed to place order for {stock}")
+                error_count += 1
+                continue
+            
+            # If it's a BUY order, place a corresponding stop-loss and target
+            if action == "BUY":
+                # Calculate stop-loss and target prices
+                stop_loss_price = round(price * (1 - STOP_LOSS_PERCENT/100), 1)
+                target_price = round(price * (1 + TARGET_PERCENT/100), 1)
+                
+                # Place stop-loss order
+                sl_order_id = place_order(
+                    stock, 
+                    "SELL", 
+                    quantity, 
+                    order_type="SL", 
+                    price=stop_loss_price
+                )
+                
+                # Place target order (limit sell)
+                target_order_id = place_order(
+                    stock, 
+                    "SELL", 
+                    quantity, 
+                    order_type="LIMIT", 
+                    price=target_price
+                )
+                
+                logger.info(f"Placed SL order: {sl_order_id} and Target order: {target_order_id} for {stock}")
+            
+            # Log the trade details
+            trade_details = {
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "stock": stock,
+                "signal": action,
+                "price": price,
+                "quantity": quantity,
+                "scanner": scan_name,
+                "order_id": order_id
+            }
+            
+            # Send trade notification to Telegram
+            telegram.notify_trade(action, stock, quantity, price, order_id)
+            
+            # Append to trade log file
+            with open("trade_log.json", "a") as f:
+                f.write(json.dumps(trade_details) + "\n")
+            
+            success_count += 1
+            logger.info(f"Successfully processed {stock}")
+            
+        except Exception as e:
+            logger.error(f"Error processing stock {stock}: {e}")
+            error_count += 1
+    
+    logger.info(f"Alert processing complete. Success: {success_count}, Errors: {error_count}")
+    return success_count > 0
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -480,110 +480,106 @@ def get_alerts():
 
 @app.route('/api/settings', methods=['GET'])
 def get_settings():
-    """Get current settings"""
+    """Get application settings"""
     try:
-        settings = {
-            "DEFAULT_QUANTITY": DEFAULT_QUANTITY,
-            "MAX_TRADE_VALUE": MAX_TRADE_VALUE,
-            "STOP_LOSS_PERCENT": STOP_LOSS_PERCENT,
-            "TARGET_PERCENT": TARGET_PERCENT,
-            "TELEGRAM_BOT_TOKEN": os.getenv("TELEGRAM_BOT_TOKEN", ""),
-            "TELEGRAM_CHAT_ID": os.getenv("TELEGRAM_CHAT_ID", "")
-        }
-        
-        return jsonify({"status": "success", "data": settings})
+        with app.app_context():
+            settings = {
+                'trading': {
+                    'default_quantity': Settings.get_value('DEFAULT_QUANTITY', str(DEFAULT_QUANTITY)),
+                    'max_trade_value': Settings.get_value('MAX_TRADE_VALUE', str(MAX_TRADE_VALUE)),
+                    'stop_loss_percent': Settings.get_value('STOP_LOSS_PERCENT', str(STOP_LOSS_PERCENT)),
+                    'target_percent': Settings.get_value('TARGET_PERCENT', str(TARGET_PERCENT))
+                },
+                'telegram': {
+                    'enabled': Settings.get_value('TELEGRAM_ENABLED', 'true'),
+                    'bot_token': os.getenv('TELEGRAM_BOT_TOKEN', ''),
+                    'chat_id': os.getenv('TELEGRAM_CHAT_ID', '')
+                }
+            }
+            return jsonify({"status": "success", "settings": settings})
     except Exception as e:
         logger.error(f"Error getting settings: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-def update_env_value(key, value):
-    """
-    Update a value in the .env file
-    Note: This only works locally, not on Railway
-    """
-    if os.path.exists('.env'):
-        try:
-            with open('.env', 'r') as f:
-                lines = f.readlines()
-            
-            updated = False
-            with open('.env', 'w') as f:
-                for line in lines:
-                    if line.startswith(f"{key}="):
-                        f.write(f"{key}={value}\n")
-                        updated = True
-                    else:
-                        f.write(line)
-                
-                if not updated:
-                    f.write(f"{key}={value}\n")
-            
-            # Also update the environment variable in memory
-            os.environ[key] = str(value)
-            return True
-        except Exception as e:
-            logger.error(f"Error updating .env file: {e}")
-            return False
-    else:
-        # For Railway we can only update in memory
-        os.environ[key] = str(value)
-        return True
-
 @app.route('/api/settings/trading', methods=['POST'])
 def update_trading_settings():
     """Update trading settings"""
-    if not authenticate_kite():
-        return jsonify({"status": "error", "message": "Kite authentication failed"}), 500
-    
     try:
         data = request.json
         
+        # Validate input data
+        if not data:
+            return jsonify({"status": "error", "message": "No data provided"}), 400
+        
+        # Extract settings
+        default_quantity = data.get('default_quantity', DEFAULT_QUANTITY)
+        max_trade_value = data.get('max_trade_value', MAX_TRADE_VALUE)
+        stop_loss_percent = data.get('stop_loss_percent', STOP_LOSS_PERCENT)
+        target_percent = data.get('target_percent', TARGET_PERCENT)
+        
+        # Validate settings
+        try:
+            default_quantity = int(default_quantity)
+            max_trade_value = float(max_trade_value)
+            stop_loss_percent = float(stop_loss_percent)
+            target_percent = float(target_percent)
+        except:
+            return jsonify({"status": "error", "message": "Invalid setting values"}), 400
+        
+        # Update settings in database
+        with app.app_context():
+            Settings.set_value('DEFAULT_QUANTITY', str(default_quantity), 'Default quantity for orders')
+            Settings.set_value('MAX_TRADE_VALUE', str(max_trade_value), 'Maximum trade value')
+            Settings.set_value('STOP_LOSS_PERCENT', str(stop_loss_percent), 'Stop loss percentage')
+            Settings.set_value('TARGET_PERCENT', str(target_percent), 'Target percentage')
+            db.session.commit()
+        
         # Update global variables
         global DEFAULT_QUANTITY, MAX_TRADE_VALUE, STOP_LOSS_PERCENT, TARGET_PERCENT
+        DEFAULT_QUANTITY = default_quantity
+        MAX_TRADE_VALUE = max_trade_value
+        STOP_LOSS_PERCENT = stop_loss_percent
+        TARGET_PERCENT = target_percent
         
-        DEFAULT_QUANTITY = int(data.get("DEFAULT_QUANTITY", DEFAULT_QUANTITY))
-        MAX_TRADE_VALUE = float(data.get("MAX_TRADE_VALUE", MAX_TRADE_VALUE))
-        STOP_LOSS_PERCENT = float(data.get("STOP_LOSS_PERCENT", STOP_LOSS_PERCENT))
-        TARGET_PERCENT = float(data.get("TARGET_PERCENT", TARGET_PERCENT))
-        
-        # Update .env file if it exists
-        update_env_value("DEFAULT_QUANTITY", DEFAULT_QUANTITY)
-        update_env_value("MAX_TRADE_VALUE", MAX_TRADE_VALUE)
-        update_env_value("STOP_LOSS_PERCENT", STOP_LOSS_PERCENT)
-        update_env_value("TARGET_PERCENT", TARGET_PERCENT)
-        
-        logger.info(f"Trading settings updated: DEFAULT_QUANTITY={DEFAULT_QUANTITY}, MAX_TRADE_VALUE={MAX_TRADE_VALUE}, STOP_LOSS_PERCENT={STOP_LOSS_PERCENT}, TARGET_PERCENT={TARGET_PERCENT}")
-        
-        return jsonify({"status": "success", "message": "Trading settings updated successfully"})
+        return jsonify({"status": "success", "message": "Trading settings updated"})
     except Exception as e:
         logger.error(f"Error updating trading settings: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/settings/telegram', methods=['POST'])
 def update_telegram_settings():
-    """Update Telegram settings"""
-    if not authenticate_kite():
-        return jsonify({"status": "error", "message": "Kite authentication failed"}), 500
-    
+    """Update Telegram notification settings"""
     try:
         data = request.json
         
-        bot_token = data.get("TELEGRAM_BOT_TOKEN", "")
-        chat_id = data.get("TELEGRAM_CHAT_ID", "")
+        # Validate input data
+        if not data:
+            return jsonify({"status": "error", "message": "No data provided"}), 400
         
-        # Update .env file if it exists
-        update_env_value("TELEGRAM_BOT_TOKEN", bot_token)
-        update_env_value("TELEGRAM_CHAT_ID", chat_id)
+        # Extract settings
+        enabled = data.get('enabled', True)
+        bot_token = data.get('bot_token', os.getenv('TELEGRAM_BOT_TOKEN', ''))
+        chat_id = data.get('chat_id', os.getenv('TELEGRAM_CHAT_ID', ''))
         
-        # Update the telegram notifier
-        global telegram
-        telegram = TelegramNotifier(bot_token, chat_id)
+        # Update settings in database
+        with app.app_context():
+            Settings.set_value('TELEGRAM_ENABLED', str(enabled).lower(), 'Telegram notifications enabled')
+            db.session.commit()
         
-        logger.info(f"Telegram settings updated: BOT_TOKEN={'*'*10 if bot_token else 'Not set'}, CHAT_ID={chat_id}")
+        # We don't store sensitive data like tokens in the database,
+        # but we do update the environment variables in memory
+        # Note: This won't persist across restarts on Railway
+        if bot_token:
+            os.environ['TELEGRAM_BOT_TOKEN'] = bot_token
+        if chat_id:
+            os.environ['TELEGRAM_CHAT_ID'] = chat_id
         
-        return jsonify({"status": "success", "message": "Telegram settings updated successfully"})
+        # Update Telegram notifier
+        telegram.update_config(bot_token, chat_id)
+        
+        return jsonify({"status": "success", "message": "Telegram settings updated"})
     except Exception as e:
-        logger.error(f"Error updating Telegram settings: {e}")
+        logger.error(f"Error updating telegram settings: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/telegram/test', methods=['POST'])

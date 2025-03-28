@@ -300,6 +300,19 @@
             window.location.href = '/auth/login';
         });
 
+        // Format date nicely
+        function formatDateTime(dateTimeStr) {
+            const dt = new Date(dateTimeStr);
+            return dt.toLocaleString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: true 
+            });
+        }
+
         // Check current status on page load
         fetch('/auth/status')
             .then(response => response.json())
@@ -309,11 +322,15 @@
                 
                 if (data.authenticated) {
                     statusDiv.className = 'status success';
+                    
+                    // Format expiry time
+                    const expiryFormatted = data.expires_at ? formatDateTime(data.expires_at) : 'undefined';
+                    
                     statusDiv.innerHTML = `
                         <i class="ri-check-double-line"></i>
                         <div>
-                            <p>Currently logged in as: <strong>${data.user_name}</strong></p>
-                            <p>Authentication valid until: ${data.expiry}</p>
+                            <p>Currently logged in as: <strong>${data.user || 'undefined'}</strong></p>
+                            <p>Authentication valid until: ${expiryFormatted}</p>
                             <p>Your ChartInk webhook is active and ready to receive alerts.</p>
                         </div>`;
                 } else {
