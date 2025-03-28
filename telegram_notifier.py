@@ -205,111 +205,79 @@ class TelegramNotifier:
                 message += "No active positions found."
                 return self.send_message(message)
             
-            # Count buy and sell positions
-            buy_count = sum(1 for trade in trades_data if trade.get('signal', '').upper() == 'BUY')
-            sell_count = sum(1 for trade in trades_data if trade.get('signal', '').upper() == 'SELL')
+            # Count positions by type
+            mis_buy = sum(1 for t in trades_data if t.get('signal', '').upper() == 'BUY' and t.get('product') == 'MIS')
+            mis_sell = sum(1 for t in trades_data if t.get('signal', '').upper() == 'SELL' and t.get('product') == 'MIS')
+            cnc_buy = sum(1 for t in trades_data if t.get('signal', '').upper() == 'BUY' and t.get('product') == 'CNC')
+            cnc_sell = sum(1 for t in trades_data if t.get('signal', '').upper() == 'SELL' and t.get('product') == 'CNC')
             
-            # Calculate total value of buy and sell positions
-            buy_value = sum(trade.get('value', 0) for trade in trades_data if trade.get('signal', '').upper() == 'BUY')
-            sell_value = sum(trade.get('value', 0) for trade in trades_data if trade.get('signal', '').upper() == 'SELL')
+            # Calculate total value by type
+            mis_buy_value = sum(t.get('value', 0) for t in trades_data if t.get('signal', '').upper() == 'BUY' and t.get('product') == 'MIS')
+            mis_sell_value = sum(t.get('value', 0) for t in trades_data if t.get('signal', '').upper() == 'SELL' and t.get('product') == 'MIS')
+            cnc_buy_value = sum(t.get('value', 0) for t in trades_data if t.get('signal', '').upper() == 'BUY' and t.get('product') == 'CNC')
+            cnc_sell_value = sum(t.get('value', 0) for t in trades_data if t.get('signal', '').upper() == 'SELL' and t.get('product') == 'CNC')
             
-            # Group positions by scanner/alert
-            scanners = {}
-            for trade in trades_data:
-                scanner = trade.get('scanner', 'Unknown')
-                if scanner not in scanners:
-                    scanners[scanner] = {
-                        'count': 0,
-                        'buy_count': 0,
-                        'sell_count': 0
-                    }
-                scanners[scanner]['count'] += 1
-                if trade.get('signal', '').upper() == 'BUY':
-                    scanners[scanner]['buy_count'] += 1
-                elif trade.get('signal', '').upper() == 'SELL':
-                    scanners[scanner]['sell_count'] += 1
+            # Calculate total P&L
+            total_pnl = sum(t.get('pnl', 0) for t in trades_data)
+            winning_trades = sum(1 for t in trades_data if t.get('pnl', 0) > 0)
+            losing_trades = sum(1 for t in trades_data if t.get('pnl', 0) < 0)
             
-            # Create the message
+            # Construct message
             message = f"📊 <b>Portfolio Summary</b> - {date.today().strftime('%d %b %Y')}\n\n"
             
-            # Add P&L summary if available
-            if pnl_data:
-                pnl_amount = pnl_data.get('total_pnl', 0)
-                pnl_percent = pnl_data.get('total_pnl_percent', 0)
-                winning_trades = pnl_data.get('winning_trades', 0)
-                losing_trades = pnl_data.get('losing_trades', 0)
-                
-                # Determine emoji based on P&L
-                if pnl_amount > 0:
-                    pnl_emoji = "🟢📈"
-                elif pnl_amount < 0:
-                    pnl_emoji = "🔴📉"
-                else:
-                    pnl_emoji = "⚪️"
-                
-                message += f"<b>Portfolio P&L:</b> {pnl_emoji} ₹{pnl_amount:.2f} ({pnl_percent:.2f}%)\n"
-                message += f"<b>Win/Loss:</b> {winning_trades}/{losing_trades}\n\n"
+            # P&L Summary
+            pnl_emoji = "📈" if total_pnl > 0 else "📉" if total_pnl < 0 else "➖"
+            message += f"<b>P&L Summary:</b>\n"
+            message += f"{pnl_emoji} Total P&L: ₹{total_pnl:.2f}\n"
+            message += f"✅ Winning: {winning_trades} | ❌ Losing: {losing_trades}\n\n"
             
-            # Position count summary
-            message += f"<b>Total Positions:</b> {len(trades_data)}\n"
-            message += f"<b>Long Positions:</b> {buy_count} (₹{buy_value:.2f})\n"
-            message += f"<b>Short Positions:</b> {sell_count} (₹{sell_value:.2f})\n\n"
+            # Position Summary
+            message += "<b>Position Summary:</b>\n"
+            if mis_buy or mis_sell:
+                message += "🔄 <b>Intraday (MIS):</b>\n"
+                if mis_buy:
+                    message += f"  • Long: {mis_buy} positions (₹{mis_buy_value:.2f})\n"
+                if mis_sell:
+                    message += f"  • Short: {mis_sell} positions (₹{mis_sell_value:.2f})\n"
             
-            # Scanner summary
-            if len(scanners) > 1:  # Only show if there's more than one scanner
-                message += "<b>Scanner Stats:</b>\n"
-                for scanner, stats in scanners.items():
-                    message += f"- <b>{scanner}</b>: {stats['count']} positions ({stats['buy_count']} long, {stats['sell_count']} short)\n"
-                message += "\n"
+            if cnc_buy or cnc_sell:
+                message += "📅 <b>Delivery (CNC):</b>\n"
+                if cnc_buy:
+                    message += f"  • Long: {cnc_buy} positions (₹{cnc_buy_value:.2f})\n"
+                if cnc_sell:
+                    message += f"  • Short: {cnc_sell} positions (₹{cnc_sell_value:.2f})\n"
+            message += "\n"
             
             # List of all positions with P&L
             message += "<b>Current Positions:</b>\n"
-            positions_to_show = trades_data[:10]  # Show only the first 10 positions to avoid message length limits
+            positions_to_show = trades_data[:10]  # Show only first 10 positions
             
-            # Add P&L data to positions if available
-            if pnl_data and 'trades_detail' in pnl_data:
-                # Create a mapping of symbol to P&L data for quick lookup
-                pnl_map = {}
-                for trade_detail in pnl_data['trades_detail']:
-                    key = f"{trade_detail.get('symbol')}_{trade_detail.get('action')}"
-                    pnl_map[key] = trade_detail
+            for position in positions_to_show:
+                symbol = position.get('stock', 'Unknown')
+                action = position.get('signal', 'Unknown').upper()
+                quantity = position.get('quantity', 0)
+                price = position.get('price', 0)
+                value = position.get('value', 0)
+                product = position.get('product', 'Unknown')
+                trade_pnl = position.get('pnl', 0)
                 
-                # Display positions with P&L info
-                for position in positions_to_show:
-                    symbol = position.get('stock', 'Unknown')
-                    action = position.get('signal', 'Unknown').upper()
-                    quantity = position.get('quantity', 0)
-                    price = position.get('price', 0)
-                    value = position.get('value', 0)
-                    
-                    # Get P&L info directly from position
-                    trade_pnl = position.get('pnl', 0)
-                    
-                    emoji = "🟢" if action == "BUY" else "🔴"
-                    pnl_str = ""
-                    if trade_pnl != 0:
-                        pnl_emoji = "📈" if trade_pnl > 0 else "📉"
-                        pnl_str = f" | {pnl_emoji} ₹{trade_pnl:.2f}"
-                    
-                    message += f"{emoji} {symbol}: {action} {quantity} @ ₹{price:.2f} (₹{value:.2f}){pnl_str}\n"
-            else:
-                # Display positions without P&L info
-                for position in positions_to_show:
-                    symbol = position.get('stock', 'Unknown')
-                    action = position.get('signal', 'Unknown').upper()
-                    quantity = position.get('quantity', 0)
-                    price = position.get('price', 0)
-                    value = position.get('value', 0)
-                    
-                    emoji = "🟢" if action == "BUY" else "🔴"
-                    message += f"{emoji} {symbol}: {action} {quantity} @ ₹{price:.2f} (₹{value:.2f})\n"
+                # Emojis based on position type and direction
+                type_emoji = "🔄" if product == "MIS" else "📅"
+                dir_emoji = "🟢" if action == "BUY" else "🔴"
+                
+                pnl_str = ""
+                if trade_pnl != 0:
+                    pnl_emoji = "📈" if trade_pnl > 0 else "📉"
+                    pnl_str = f" | {pnl_emoji} ₹{trade_pnl:.2f}"
+                
+                message += f"{type_emoji} {dir_emoji} {symbol}: {action} {quantity} @ ₹{price:.2f} ({product}){pnl_str}\n"
             
             if len(trades_data) > 10:
-                message += f"...and {len(trades_data) - 10} more positions\n"
+                message += f"\n... and {len(trades_data) - 10} more positions"
             
             return self.send_message(message)
         except Exception as e:
-            self.logger.error(f"Failed to create day summary notification: {e}")
+            self.logger.error(f"Error sending day summary notification: {e}")
             return False
     
     def send_test_message(self):

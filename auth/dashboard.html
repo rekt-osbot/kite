@@ -247,6 +247,16 @@
             color: var(--danger);
         }
         
+        .badge-mis {
+            background-color: var(--success-light);
+            color: var(--success);
+        }
+        
+        .badge-cnc {
+            background-color: var(--danger-light);
+            color: var(--danger);
+        }
+        
         .profit {
             color: var(--success);
             font-weight: 600;
@@ -815,6 +825,7 @@
                                     <thead>
                                         <tr>
                                             <th>Symbol</th>
+                                            <th>Product</th>
                                             <th>Type</th>
                                             <th>Qty</th>
                                             <th>Avg Price</th>
@@ -835,9 +846,13 @@
                             const positionType = position.quantity > 0 ? 
                                 `<span class="badge badge-buy">BUY</span>` : 
                                 `<span class="badge badge-sell">SELL</span>`;
+                            const productType = position.product === 'MIS' ?
+                                `<span class="badge badge-mis">MIS</span>` :
+                                `<span class="badge badge-cnc">CNC</span>`;
                             
                             row.innerHTML = `
                                 <td class="symbol">${position.tradingsymbol}</td>
+                                <td>${productType}</td>
                                 <td>${positionType}</td>
                                 <td>${Math.abs(position.quantity)}</td>
                                 <td>₹${position.average_price.toFixed(2)}</td>

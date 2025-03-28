@@ -794,51 +794,57 @@ def get_todays_trades():
         # Fetch positions from Kite API
         positions = kite.get_positions()
         
-        if not positions or 'net' not in positions:
+        if not positions:
             logger.warning("No positions data available from Kite API")
             return []
         
-        # Process the positions data
-        for position in positions['net']:
-            # Extract relevant information from position
-            symbol = position.get('tradingsymbol', '')
-            exchange = position.get('exchange', '')
-            
-            # Format symbol with exchange prefix if not already there
-            if not symbol.startswith("NSE:") and not symbol.startswith("NFO:"):
-                if exchange:
-                    symbol = f"{exchange}:{symbol}"
-            
-            # Determine if this is a buy or sell position based on quantity
-            quantity = position.get('quantity', 0)
-            action = "BUY" if quantity > 0 else "SELL"
-            
-            # If quantity is negative (short position), make it positive for display
-            quantity = abs(quantity)
-            
-            # Get price details
-            price = position.get('average_price', 0)
-            last_price = position.get('last_price', 0)
-            
-            # Calculate trade value
-            value = price * quantity
-            
-            # Create trade object
-            trade = {
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "stock": symbol,
-                "signal": action,
-                "price": price,
-                "quantity": quantity,
-                "value": value,
-                "scanner": "Kite Positions",  # Default scanner name
-                "order_id": "",               # Not available from positions API
-                "pnl": position.get('pnl', 0),
-                "unrealized": position.get('unrealised', 0),
-                "realized": position.get('realised', 0)
-            }
-            
-            trades.append(trade)
+        # Process both day (MIS) and net (CNC) positions
+        for position_type in ['day', 'net']:
+            if position_type not in positions:
+                continue
+                
+            for position in positions[position_type]:
+                # Extract relevant information from position
+                symbol = position.get('tradingsymbol', '')
+                exchange = position.get('exchange', '')
+                
+                # Format symbol with exchange prefix if not already there
+                if not symbol.startswith("NSE:") and not symbol.startswith("NFO:"):
+                    if exchange:
+                        symbol = f"{exchange}:{symbol}"
+                
+                # Determine if this is a buy or sell position based on quantity
+                quantity = position.get('quantity', 0)
+                action = "BUY" if quantity > 0 else "SELL"
+                
+                # If quantity is negative (short position), make it positive for display
+                quantity = abs(quantity)
+                
+                # Get price details
+                price = position.get('average_price', 0)
+                last_price = position.get('last_price', 0)
+                
+                # Calculate trade value
+                value = price * quantity
+                
+                # Create trade object
+                trade = {
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "stock": symbol,
+                    "signal": action,
+                    "price": price,
+                    "quantity": quantity,
+                    "value": value,
+                    "scanner": "Kite Positions",  # Default scanner name
+                    "order_id": "",               # Not available from positions API
+                    "pnl": position.get('pnl', 0),
+                    "unrealized": position.get('unrealised', 0),
+                    "realized": position.get('realised', 0),
+                    "product": "MIS" if position_type == 'day' else "CNC",  # Add product type
+                    "last_price": last_price
+                }
+                
+                trades.append(trade)
         
         logger.info(f"Found {len(trades)} positions from Kite API")
         return trades
