@@ -515,17 +515,18 @@
                 </div>
             `;
             
-            fetch('/api/alerts/list')
+            fetch('/api/alerts')
                 .then(response => response.json())
                 .then(data => {
-                    if (data.alerts && data.alerts.length > 0) {
+                    if (data.status === 'success' && data.data && data.data.length > 0) {
                         alertsContainer.innerHTML = '';
                         
-                        data.alerts.forEach(alert => {
-                            // Determine if this is a buy or sell alert based on scan name
-                            const isBuyAlert = alert.scan_name.toLowerCase().includes('buy') || 
-                                    alert.scan_name.toLowerCase().includes('bullish') || 
-                                    alert.scan_name.toLowerCase().includes('breakout');
+                        data.data.forEach(alert => {
+                            // Determine if this is a buy or sell alert based on action or scan name
+                            const isBuyAlert = alert.action === 'BUY' || 
+                                    (alert.scan_name && alert.scan_name.toLowerCase().includes('buy')) || 
+                                    (alert.scan_name && alert.scan_name.toLowerCase().includes('bullish')) || 
+                                    (alert.scan_name && alert.scan_name.toLowerCase().includes('breakout'));
                             
                             const alertType = isBuyAlert ? 'buy' : 'sell';
                             const alertIcon = isBuyAlert ? 'ri-arrow-up-circle-line' : 'ri-arrow-down-circle-line';
@@ -533,37 +534,46 @@
                             const alertCard = document.createElement('div');
                             alertCard.className = `alert-card ${alertType}`;
                             
-                            // Convert stock strings to arrays
-                            const stocks = alert.stocks.split(',');
-                            const prices = alert.trigger_prices.split(',');
-                            const stocksWithPrices = stocks.map((stock, index) => {
+                            // Handle stocks array or string
+                            let stocksArray = alert.stocks;
+                            let pricesArray = alert.prices;
+                            
+                            if (typeof stocksArray === 'string') {
+                                stocksArray = stocksArray.split(',').map(s => s.trim());
+                            }
+                            
+                            if (typeof pricesArray === 'string') {
+                                pricesArray = pricesArray.split(',').map(p => p.trim());
+                            }
+                            
+                            const stocksWithPrices = stocksArray.map((stock, index) => {
                                 return {
-                                    symbol: stock.trim(),
-                                    price: prices[index] ? prices[index].trim() : 'N/A'
+                                    symbol: stock,
+                                    price: pricesArray[index] || 'N/A'
                                 };
                             });
                             
                             const badgeClass = isBuyAlert ? 'buy-badge' : 'sell-badge';
                             const badgeIcon = isBuyAlert ? 'ri-arrow-up-line' : 'ri-arrow-down-line';
-                            const badgeText = isBuyAlert ? 'BUY' : 'SELL';
+                            const badgeText = alert.action || (isBuyAlert ? 'BUY' : 'SELL');
                             
                             alertCard.innerHTML = `
                                 <div class="alert-header">
                                     <div>
-                                        ${alert.scan_name}
+                                        ${alert.scan_name || 'ChartInk Alert'}
                                         <span class="alert-badge ${badgeClass}">
                                             <i class="${badgeIcon}"></i> ${badgeText}
                                         </span>
                                     </div>
                                     <div class="alert-time">
-                                        <i class="ri-time-line"></i> ${alert.triggered_at}
+                                        <i class="ri-time-line"></i> ${alert.triggered_at || alert.timestamp || 'N/A'}
                                     </div>
                                 </div>
                                 
                                 <div class="alert-meta">
                                     <div class="alert-meta-item">
                                         <i class="ri-radar-line"></i>
-                                        <span>Scanner: ${alert.scan_name}</span>
+                                        <span>Scanner: ${alert.scan_name || 'Unknown'}</span>
                                     </div>
                                     <div class="alert-meta-item">
                                         <i class="ri-alarm-line"></i>

@@ -577,17 +577,18 @@
         
         // Function to load trading settings
         function loadTradingSettings() {
-            fetch('api/settings/trading')
+            fetch('/api/settings')
                 .then(response => response.json())
                 .then(data => {
-                    if (data.success) {
-                        document.getElementById('defaultQuantity').value = data.settings.default_quantity || 1;
-                        document.getElementById('maxTradeValue').value = data.settings.max_trade_value || 5000;
-                        document.getElementById('maxPositionSize').value = data.settings.max_position_size || 10000;
-                        document.getElementById('stopLossPercent').value = data.settings.stop_loss_percent || 2;
-                        document.getElementById('targetPercent').value = data.settings.target_percent || 4;
+                    if (data.status === 'success') {
+                        const tradingSettings = data.settings.trading;
+                        document.getElementById('defaultQuantity').value = tradingSettings.default_quantity || 1;
+                        document.getElementById('maxTradeValue').value = tradingSettings.max_trade_value || 5000;
+                        document.getElementById('maxPositionSize').value = tradingSettings.max_position_size || 10000;
+                        document.getElementById('stopLossPercent').value = tradingSettings.stop_loss_percent || 2;
+                        document.getElementById('targetPercent').value = tradingSettings.target_percent || 4;
                     } else {
-                        showTradingSettingsMessage('error', 'Failed to load settings: ' + data.message);
+                        showTradingSettingsMessage('error', 'Failed to load settings: ' + (data.message || 'Unknown error'));
                     }
                 })
                 .catch(error => {
@@ -598,14 +599,15 @@
         
         // Function to load telegram settings
         function loadTelegramSettings() {
-            fetch('/settings/telegram')
+            fetch('/api/settings')
                 .then(response => response.json())
                 .then(data => {
-                    if (data.success) {
-                        document.getElementById('telegramBotToken').value = data.settings.telegram_bot_token || '';
-                        document.getElementById('telegramChatId').value = data.settings.telegram_chat_id || '';
+                    if (data.status === 'success') {
+                        const telegramSettings = data.settings.telegram;
+                        document.getElementById('telegramBotToken').value = telegramSettings.bot_token || '';
+                        document.getElementById('telegramChatId').value = telegramSettings.chat_id || '';
                     } else {
-                        showTelegramSettingsMessage('error', 'Failed to load settings: ' + data.message);
+                        showTelegramSettingsMessage('error', 'Failed to load settings: ' + (data.message || 'Unknown error'));
                     }
                 })
                 .catch(error => {
@@ -656,7 +658,7 @@
                 target_percent: parseFloat(document.getElementById('targetPercent').value)
             };
             
-            fetch('/settings/trading', {
+            fetch('/api/settings/trading', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -665,10 +667,10 @@
             })
             .then(response => response.json())
             .then(data => {
-                if (data.success) {
+                if (data.status === 'success') {
                     showTradingSettingsMessage('success', 'Trading settings saved successfully');
                 } else {
-                    showTradingSettingsMessage('error', 'Failed to save settings: ' + data.message);
+                    showTradingSettingsMessage('error', 'Failed to save settings: ' + (data.message || 'Unknown error'));
                 }
             })
             .catch(error => {
@@ -682,11 +684,12 @@
             event.preventDefault();
             
             const settings = {
-                telegram_bot_token: document.getElementById('telegramBotToken').value,
-                telegram_chat_id: document.getElementById('telegramChatId').value
+                enabled: true,
+                bot_token: document.getElementById('telegramBotToken').value,
+                chat_id: document.getElementById('telegramChatId').value
             };
             
-            fetch('/settings/telegram', {
+            fetch('/api/settings/telegram', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -695,10 +698,10 @@
             })
             .then(response => response.json())
             .then(data => {
-                if (data.success) {
+                if (data.status === 'success') {
                     showTelegramSettingsMessage('success', 'Telegram settings saved successfully');
                 } else {
-                    showTelegramSettingsMessage('error', 'Failed to save settings: ' + data.message);
+                    showTelegramSettingsMessage('error', 'Failed to save settings: ' + (data.message || 'Unknown error'));
                 }
             })
             .catch(error => {
@@ -709,15 +712,24 @@
         
         // Function to test telegram notification
         function testTelegramNotification() {
-            fetch('/settings/telegram/test', {
-                method: 'POST'
+            const telegramData = {
+                TELEGRAM_BOT_TOKEN: document.getElementById('telegramBotToken').value,
+                TELEGRAM_CHAT_ID: document.getElementById('telegramChatId').value
+            };
+            
+            fetch('/api/telegram/test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(telegramData)
             })
             .then(response => response.json())
             .then(data => {
-                if (data.success) {
+                if (data.status === 'success') {
                     showTelegramSettingsMessage('success', 'Test notification sent successfully');
                 } else {
-                    showTelegramSettingsMessage('error', 'Failed to send test notification: ' + data.message);
+                    showTelegramSettingsMessage('error', 'Failed to send test notification: ' + (data.message || 'Unknown error'));
                 }
             })
             .catch(error => {
