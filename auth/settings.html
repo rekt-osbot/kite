@@ -568,7 +568,7 @@
         
         // Function to load trading settings
         function loadTradingSettings() {
-            fetch('/settings/trading')
+            fetch('api/settings/trading')
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {

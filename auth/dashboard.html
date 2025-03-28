@@ -594,7 +594,7 @@
                 </div>
             `;
             
-            fetch('/positions')
+            fetch('/api/positions')
                 .then(response => response.json())
                 .then(data => {
                     const positions = data.positions || [];

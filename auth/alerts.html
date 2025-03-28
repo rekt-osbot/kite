@@ -515,7 +515,7 @@
                 </div>
             `;
             
-            fetch('/alerts/list')
+            fetch('/api/alerts/list')
                 .then(response => response.json())
                 .then(data => {
                     if (data.alerts && data.alerts.length > 0) {
