@@ -9,6 +9,7 @@ import time
 import logging
 import subprocess
 from datetime import datetime, timedelta
+import pytz
 
 # Configure logging
 logging.basicConfig(
@@ -17,12 +18,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Set IST timezone
+IST = pytz.timezone('Asia/Kolkata')
+
 def is_market_open():
     """
     Check if the market is currently open.
     Returns True if it's a weekday (Monday-Friday) and time is between 9:00 AM to 3:30 PM IST.
     """
-    now = datetime.now()
+    # Get current time in IST
+    now = datetime.now(IST)
     # Check if it's a weekday (0 is Monday, 6 is Sunday)
     if now.weekday() > 4:  # Saturday or Sunday
         logger.info("Market closed: Weekend")
@@ -41,7 +46,7 @@ def is_market_open():
 
 def calculate_next_market_open():
     """Calculate the next time the market will open"""
-    now = datetime.now()
+    now = datetime.now(IST)
     next_market_open = None
     
     # If it's a weekend, find the next Monday
@@ -75,7 +80,7 @@ def wait_for_market_open():
         
         next_open = calculate_next_market_open()
         if next_open:
-            wait_seconds = (next_open - datetime.now()).total_seconds()
+            wait_seconds = (next_open - datetime.now(IST)).total_seconds()
             if wait_seconds > 0:
                 logger.info(f"Market is closed. Next open at {next_open.strftime('%Y-%m-%d %H:%M:%S')} - sleeping for {wait_seconds/3600:.1f} hours")
                 time.sleep(wait_seconds)

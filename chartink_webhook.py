@@ -3,6 +3,7 @@ import os
 import logging
 import time
 import sys
+import pytz
 from datetime import datetime, timedelta, date
 from flask import Flask, request, jsonify, redirect, send_from_directory, render_template_string
 from dotenv import load_dotenv
@@ -25,6 +26,9 @@ load_dotenv()
 # Market hours check - exit immediately if market is closed
 # This will work regardless of how the app is started (gunicorn or directly)
 BYPASS_MARKET_HOURS = os.getenv("BYPASS_MARKET_HOURS", "False").lower() == "true"
+
+# Set IST timezone
+IST = pytz.timezone('Asia/Kolkata')
 
 # Define a simple HTML template for market closed page
 MARKET_CLOSED_HTML = """
@@ -101,7 +105,7 @@ def create_market_closed_app():
     @closed_app.route('/', defaults={'path': ''})
     @closed_app.route('/<path:path>')
     def market_closed(path):
-        now = datetime.now()
+        now = datetime.now(IST)
         
         # Calculate next market open time
         next_market_open = None
@@ -139,7 +143,7 @@ def create_market_closed_app():
 
 # Check if we should run the full app or just the market-closed version
 if not BYPASS_MARKET_HOURS and not is_market_open():
-    logger.info(f"Market is closed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}. Serving market-closed page.")
+    logger.info(f"Market is closed at {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')}. Serving market-closed page.")
     app = create_market_closed_app()
 else:
     logger.info("Market is open or bypass enabled. Starting the full application...")
@@ -844,7 +848,7 @@ def calculate_notional_pnl(trades):
             
             # If we have unrealized and realized P&L from Kite
             unrealized = float(trade.get('unrealized', 0))
-            realized = float(trade.get('realized', 0))
+            realized = float(trade.get('realised', 0))
             
             # Calculate current value based on investment and P&L
             current_value = investment + pnl
@@ -1032,6 +1036,10 @@ def trigger_day_summary():
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("DEBUG", "False").lower() == "true"
+    
+    # Log the current time in IST
+    now = datetime.now(IST)
+    logger.info(f"Starting application at {now.strftime('%Y-%m-%d %H:%M:%S IST')}")
     
     # For the full app only, start the required services
     if not isinstance(app, Flask) or app.name != "create_market_closed_app":

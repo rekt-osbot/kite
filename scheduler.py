@@ -3,6 +3,7 @@ import time
 import logging
 import requests
 import threading
+import pytz
 from datetime import datetime, timedelta
 
 # Configure logging to output to console
@@ -12,12 +13,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Set IST timezone
+IST = pytz.timezone('Asia/Kolkata')
+
 def is_market_open():
     """
     Check if the market is currently open.
     Returns True if it's a weekday (Monday-Friday) and time is between 9:00 AM to 3:30 PM IST.
     """
-    now = datetime.now()
+    now = datetime.now(IST)
     # Check if it's a weekday (0 is Monday, 6 is Sunday)
     if now.weekday() > 4:  # Saturday or Sunday
         logger.info("Market closed: Weekend")
@@ -25,7 +29,7 @@ def is_market_open():
     
     # Create datetime objects for market open (9:00 AM) and close (3:30 PM)
     # Assuming IST timezone is correctly set on the server
-    market_open = now.replace(hour=9, minute=00, second=0, microsecond=0)
+    market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
     market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
     
     # Check if current time is within market hours
