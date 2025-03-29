@@ -1,1 +1,1 @@
-web: python railway_setup.py && python chartink_webhook.py 
+web: python railway_start.py 

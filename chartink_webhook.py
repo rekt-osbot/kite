@@ -2,8 +2,9 @@ import json
 import os
 import logging
 import time
+import sys
 from datetime import datetime, timedelta, date
-from flask import Flask, request, jsonify, redirect, send_from_directory
+from flask import Flask, request, jsonify, redirect, send_from_directory, render_template_string
 from dotenv import load_dotenv
 from kite_connect import KiteConnect
 from scheduler import start_scheduler, is_market_open
@@ -21,8 +22,130 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-# Initialize Flask app
-app = Flask(__name__)
+# Market hours check - exit immediately if market is closed
+# This will work regardless of how the app is started (gunicorn or directly)
+BYPASS_MARKET_HOURS = os.getenv("BYPASS_MARKET_HOURS", "False").lower() == "true"
+
+# Define a simple HTML template for market closed page
+MARKET_CLOSED_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market Closed - Kite Trading Bot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            border: 1px solid #ddd;
+            padding: 20px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+            margin-top: 40px;
+        }
+        h1 {
+            color: #e67e22;
+        }
+        .time {
+            font-size: 1.2em;
+            margin: 20px 0;
+        }
+        .next {
+            color: #16a085;
+            font-weight: bold;
+        }
+        footer {
+            margin-top: 40px;
+            font-size: 0.8em;
+            color: #777;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Market is Currently Closed</h1>
+        <p>This trading bot only operates during market hours to optimize resource usage.</p>
+        
+        <div class="time">
+            <p>Current time: <strong>{{current_time}}</strong></p>
+            <p class="next">Next market open: <strong>{{next_open_time}}</strong></p>
+        </div>
+        
+        <div>
+            <h3>Market Hours:</h3>
+            <p>Monday - Friday: 9:00 AM - 3:30 PM IST</p>
+            <p>Weekends: Closed</p>
+        </div>
+    </div>
+    
+    <footer>
+        <p>Kite Trading Bot - Cost-optimized to run only during market hours</p>
+        <p>For questions or support, please contact the administrator</p>
+    </footer>
+</body>
+</html>
+"""
+
+def create_market_closed_app():
+    """Create a Flask app that only shows a 'market closed' page"""
+    closed_app = Flask(__name__)
+    
+    @closed_app.route('/', defaults={'path': ''})
+    @closed_app.route('/<path:path>')
+    def market_closed(path):
+        now = datetime.now()
+        
+        # Calculate next market open time
+        next_market_open = None
+        
+        # If it's a weekend, find the next Monday
+        if now.weekday() > 4:  # Saturday or Sunday
+            days_to_monday = 7 - now.weekday() if now.weekday() == 6 else 1
+            next_market_open = (now + timedelta(days=days_to_monday)).replace(
+                hour=9, minute=0, second=0, microsecond=0
+            )
+        # If it's before market open on a weekday
+        elif now.hour < 9:
+            next_market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        # If it's after market close on a weekday (not Friday)
+        elif now.weekday() < 4 and (now.hour > 15 or (now.hour == 15 and now.minute >= 30)):
+            next_market_open = (now + timedelta(days=1)).replace(
+                hour=9, minute=0, second=0, microsecond=0
+            )
+        # If it's after market close on Friday
+        elif now.weekday() == 4 and (now.hour > 15 or (now.hour == 15 and now.minute >= 30)):
+            next_market_open = (now + timedelta(days=3)).replace(
+                hour=9, minute=0, second=0, microsecond=0
+            )
+        
+        next_open_str = next_market_open.strftime('%Y-%m-%d %H:%M:%S IST') if next_market_open else "Unknown"
+        current_time_str = now.strftime('%Y-%m-%d %H:%M:%S IST')
+        
+        return render_template_string(
+            MARKET_CLOSED_HTML, 
+            current_time=current_time_str,
+            next_open_time=next_open_str
+        )
+    
+    return closed_app
+
+# Check if we should run the full app or just the market-closed version
+if not BYPASS_MARKET_HOURS and not is_market_open():
+    logger.info(f"Market is closed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}. Serving market-closed page.")
+    app = create_market_closed_app()
+else:
+    logger.info("Market is open or bypass enabled. Starting the full application...")
+    
+    # Initialize Flask app
+    app = Flask(__name__)
 
 # Database configuration
 database_url = os.getenv('DATABASE_URL')
@@ -910,88 +1033,18 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("DEBUG", "False").lower() == "true"
     
-    # Import sleep and signal
-    import time
-    import signal
+    # For the full app only, start the required services
+    if not isinstance(app, Flask) or app.name != "create_market_closed_app":
+        # Attempt to authenticate to check if token is valid
+        authenticate_kite()
+        
+        # Start the auth checker scheduler
+        start_scheduler()
+        
+        # Schedule the daily summary task - default at 3:30 PM IST (market close time)
+        scheduler.add_job(send_day_summary, 'cron', hour=15, minute=30, timezone='Asia/Kolkata')
+        scheduler.start()
     
-    # Prepare for market hours check
-    logger.info("Starting application with market hours optimization")
-    
-    while True:
-        # Check if market is open
-        if is_market_open():
-            logger.info("Market is open. Starting the application...")
-            
-            # Attempt to authenticate to check if token is valid
-            authenticate_kite()
-            
-            # Start the auth checker scheduler
-            start_scheduler()
-            
-            # Schedule the daily summary task - default at 3:30 PM IST (market close time)
-            scheduler.add_job(send_day_summary, 'cron', hour=15, minute=30, timezone='Asia/Kolkata')
-            scheduler.start()
-            
-            # Start the server
-            logger.info(f"Starting webhook server on port {port}")
-            
-            # Calculate time until market close
-            now = datetime.now()
-            market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
-            
-            # Start the Flask application with a timeout
-            # We use a thread to run the app and set a timer to stop it at market close
-            from threading import Thread
-            
-            def run_flask_app():
-                app.run(host="0.0.0.0", port=port, debug=debug)
-            
-            flask_thread = Thread(target=run_flask_app)
-            flask_thread.daemon = True
-            flask_thread.start()
-            
-            # Wait until market close
-            seconds_until_close = (market_close - now).total_seconds()
-            if seconds_until_close > 0:
-                logger.info(f"App will run for {seconds_until_close/60:.1f} minutes until market close")
-                time.sleep(seconds_until_close)
-            
-            logger.info("Market has closed. Shutting down application.")
-            # Send SIGTERM to the current process to gracefully shut down Flask
-            os.kill(os.getpid(), signal.SIGTERM)
-            
-            # Small delay to ensure shutdown message is logged
-            time.sleep(5)
-        else:
-            # Market is closed, calculate time until next market open
-            now = datetime.now()
-            next_market_open = None
-            
-            # If it's a weekend, find the next Monday
-            if now.weekday() > 4:  # Saturday or Sunday
-                days_to_monday = 7 - now.weekday() if now.weekday() == 6 else 1
-                next_market_open = (now + timedelta(days=days_to_monday)).replace(
-                    hour=9, minute=0, second=0, microsecond=0
-                )
-            # If it's before market open on a weekday
-            elif now.hour < 9:
-                next_market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
-            # If it's after market close on a weekday (not Friday)
-            elif now.weekday() < 4 and (now.hour > 15 or (now.hour == 15 and now.minute >= 30)):
-                next_market_open = (now + timedelta(days=1)).replace(
-                    hour=9, minute=0, second=0, microsecond=0
-                )
-            # If it's after market close on Friday
-            elif now.weekday() == 4 and (now.hour > 15 or (now.hour == 15 and now.minute >= 30)):
-                next_market_open = (now + timedelta(days=3)).replace(
-                    hour=9, minute=0, second=0, microsecond=0
-                )
-            
-            if next_market_open:
-                wait_seconds = (next_market_open - now).total_seconds()
-                logger.info(f"Market is closed. Sleeping until next market open: {next_market_open.strftime('%Y-%m-%d %H:%M:%S')} ({wait_seconds/3600:.1f} hours)")
-                time.sleep(wait_seconds)
-            else:
-                # Fallback - sleep for 15 minutes and check again
-                logger.info("Could not determine next market open time. Sleeping for 15 minutes.")
-                time.sleep(900)  # 15 minutes 
+    # Start the server (either full app or market-closed app)
+    logger.info(f"Starting webhook server on port {port}")
+    app.run(host="0.0.0.0", port=port, debug=debug) 
