@@ -124,28 +124,14 @@ if not BYPASS_MARKET_HOURS and not is_market_open():
 else:
     logger.info("Market is open or bypass enabled. Starting the full application...")
     
-    # Only import database modules when the market is open
+    # Only import required modules when the market is open
     from kite_connect import KiteConnect
-    from models import db, User, AuthToken, Settings
     from telegram_notifier import TelegramNotifier
     from apscheduler.schedulers.background import BackgroundScheduler
+    from file_storage import storage
     
     # Initialize Flask app
     app = Flask(__name__)
-
-    # Database configuration - only connect when the market is open
-    database_url = os.getenv('DATABASE_URL')
-    if not database_url:
-        # Local development fallback
-        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///kite.db'
-    else:
-        # Ensure DATABASE_URL is compatible with SQLAlchemy
-        if database_url.startswith('postgres://'):
-            database_url = database_url.replace('postgres://', 'postgresql://', 1)
-        app.config['SQLALCHEMY_DATABASE_URI'] = database_url
-
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    db.init_app(app)
 
     # Initialize Kite Connect
     kite = KiteConnect()
@@ -156,23 +142,18 @@ else:
     # Scheduler for periodic tasks
     scheduler = BackgroundScheduler()
 
-    # Trading configuration - load from environment or database
+    # Trading configuration - load from file storage
     def load_trading_config():
-        """Load trading configuration from database if available, otherwise from environment"""
-        with app.app_context():
-            default_quantity = Settings.get_value('DEFAULT_QUANTITY', os.getenv("DEFAULT_QUANTITY", "1"))
-            max_trade_value = Settings.get_value('MAX_TRADE_VALUE', os.getenv("MAX_TRADE_VALUE", "5000"))
-            stop_loss_percent = Settings.get_value('STOP_LOSS_PERCENT', os.getenv("STOP_LOSS_PERCENT", "2"))
-            target_percent = Settings.get_value('TARGET_PERCENT', os.getenv("TARGET_PERCENT", "4"))
-            max_position_size = Settings.get_value('MAX_POSITION_SIZE', os.getenv("MAX_POSITION_SIZE", "5000"))
-            
-            return {
-                'DEFAULT_QUANTITY': int(default_quantity),
-                'MAX_TRADE_VALUE': float(max_trade_value),
-                'STOP_LOSS_PERCENT': float(stop_loss_percent),
-                'TARGET_PERCENT': float(target_percent),
-                'MAX_POSITION_SIZE': float(max_position_size)
-            }
+        """Load trading configuration from storage"""
+        settings = storage.get_all_settings()
+        
+        return {
+            'DEFAULT_QUANTITY': int(settings.get('DEFAULT_QUANTITY', "1")),
+            'MAX_TRADE_VALUE': float(settings.get('MAX_TRADE_VALUE', "5000")),
+            'STOP_LOSS_PERCENT': float(settings.get('STOP_LOSS_PERCENT', "2")),
+            'TARGET_PERCENT': float(settings.get('TARGET_PERCENT', "4")),
+            'MAX_POSITION_SIZE': float(settings.get('MAX_POSITION_SIZE', "5000"))
+        }
 
     # Initialize trading configuration
     config = load_trading_config()
@@ -183,7 +164,6 @@ else:
     MAX_POSITION_SIZE = config['MAX_POSITION_SIZE']
 
     # Store received alerts in memory (cleared on restart)
-    # In production, consider using a database
     received_alerts = []
 
     # Authentication routes
@@ -229,33 +209,17 @@ else:
                 profile = kite.get_profile()
                 user_id = profile.get('user_id')
                 username = profile.get('user_name')
-                email = profile.get('email')
                 
-                # Store user and token in database
-                with app.app_context():
-                    # Check if user already exists
-                    user = User.query.filter_by(user_id=user_id).first()
-                    if not user:
-                        # Create new user
-                        user = User(user_id=user_id, username=username, email=email)
-                        db.session.add(user)
-                        db.session.commit()
-                    
-                    # Delete any existing tokens for this user
-                    AuthToken.query.filter_by(user_id=user.id).delete()
-                    
-                    # Create new token with 24 hour expiration
-                    token = AuthToken.create_token(
-                        user.id, 
-                        session_data.get("access_token"),
-                        expires_in_hours=24
-                    )
-                    
-                    db.session.add(token)
-                    db.session.commit()
-                    
-                    # Set the token in KiteConnect instance
-                    kite.set_access_token(token.access_token)
+                # Store token in file storage
+                token_data = storage.save_token(
+                    user_id,
+                    username, 
+                    session_data.get("access_token"),
+                    expires_in_hours=24
+                )
+                
+                # Set the token in KiteConnect instance
+                kite.set_access_token(token_data['access_token'])
             except Exception as e:
                 logger.error(f"Error saving user data: {e}")
             
@@ -274,31 +238,29 @@ else:
     def auth_status():
         """Check if authenticated with Kite"""
         try:
-            with app.app_context():
-                # Find the most recent valid token
-                token = AuthToken.query.order_by(AuthToken.created_at.desc()).first()
+            # Get token from storage
+            token_data = storage.get_token()
+            
+            if token_data:
+                # Valid token found
+                username = token_data.get('username', 'Unknown')
+                created_at = token_data.get('created_at', '')
+                expires_at = token_data.get('expires_at', '')
                 
-                if token and not token.is_expired:
-                    # Valid token found, get user info
-                    user = db.session.get(User, token.user_id)
-                    
-                    # Set token in KiteConnect instance if needed
-                    if kite.access_token != token.access_token:
-                        kite.set_access_token(token.access_token)
-                    
-                    # Calculate expiration time
-                    expiry_time = token.expires_at
-                    
-                    return jsonify({
-                        "status": "success", 
-                        "authenticated": True, 
-                        "user": user.username,
-                        "last_login": token.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                        "expires_at": expiry_time.strftime("%Y-%m-%dT%H:%M:%S")
-                    })
+                # Set token in KiteConnect instance if needed
+                if kite.access_token != token_data.get('access_token'):
+                    kite.set_access_token(token_data.get('access_token'))
                 
-                # No valid token found
-                return jsonify({"status": "error", "authenticated": False})
+                return jsonify({
+                    "status": "success", 
+                    "authenticated": True, 
+                    "user": username,
+                    "last_login": created_at,
+                    "expires_at": expires_at
+                })
+            
+            # No valid token found
+            return jsonify({"status": "error", "authenticated": False})
         except Exception as e:
             logger.error(f"Auth status check failed: {e}")
             return jsonify({"status": "error", "authenticated": False, "message": str(e)})
@@ -306,22 +268,19 @@ else:
     def authenticate_kite():
         """Ensure Kite API is authenticated using stored token when possible"""
         try:
-            with app.app_context():
-                # Find the most recent valid token
-                token = AuthToken.query.order_by(AuthToken.created_at.desc()).first()
+            # Get token from storage
+            token_data = storage.get_token()
+            
+            if token_data:
+                # Valid token found, set in KiteConnect instance
+                if kite.access_token != token_data.get('access_token'):
+                    kite.set_access_token(token_data.get('access_token'))
                 
-                if token and not token.is_expired:
-                    # Valid token found, set in KiteConnect instance
-                    if kite.access_token != token.access_token:
-                        kite.set_access_token(token.access_token)
-                    
-                    # Get user info
-                    user = db.session.get(User, token.user_id)
-                    logger.info(f"Kite API authenticated as {user.username}")
-                    return True
-                
-                # No valid token found
-                return False
+                logger.info(f"Kite API authenticated as {token_data.get('username')}")
+                return True
+            
+            # No valid token found
+            return False
         except Exception as e:
             logger.error(f"Kite authentication error: {e}")
             return False
@@ -644,31 +603,23 @@ else:
 
     @app.route('/api/settings')
     def get_settings():
-        """Get user settings"""
+        """Get settings"""
         try:
-            with app.app_context():
-                # Find the most recent valid token
-                token = AuthToken.query.order_by(AuthToken.created_at.desc()).first()
+            # Get token from storage to validate authentication
+            token_data = storage.get_token()
+            
+            if token_data:
+                # Get all settings
+                settings = storage.get_all_settings()
                 
-                if token and not token.is_expired:
-                    # Valid token found, get user info
-                    user = db.session.get(User, token.user_id)
-                    
-                    # Calculate expiration time
-                    expiry_time = token.expires_at
-                    
-                    # Get all settings
-                    all_settings = Settings.query.all()
-                    settings_dict = {s.key: s.value for s in all_settings}
-                    
-                    return jsonify({
-                        "status": "success", 
-                        "settings": settings_dict,
-                        "user": user.username
-                    })
-                
-                # No valid token found
-                return jsonify({"status": "error", "message": "Authentication required"})
+                return jsonify({
+                    "status": "success", 
+                    "settings": settings,
+                    "user": token_data.get('username', 'Unknown')
+                })
+            
+            # No valid token found
+            return jsonify({"status": "error", "message": "Authentication required"})
         except Exception as e:
             logger.error(f"Settings retrieval failed: {e}")
             return jsonify({"status": "error", "message": str(e)})
@@ -703,14 +654,15 @@ else:
             except:
                 return jsonify({"status": "error", "message": "Invalid setting values"}), 400
             
-            # Update settings in database
-            with app.app_context():
-                Settings.set_value('DEFAULT_QUANTITY', str(default_quantity), 'Default quantity for orders')
-                Settings.set_value('MAX_TRADE_VALUE', str(max_trade_value), 'Maximum trade value')
-                Settings.set_value('STOP_LOSS_PERCENT', str(stop_loss_percent), 'Stop loss percentage')
-                Settings.set_value('TARGET_PERCENT', str(target_percent), 'Target percentage')
-                Settings.set_value('MAX_POSITION_SIZE', str(max_position_size), 'Maximum position size')
-                db.session.commit()
+            # Update settings in storage
+            settings_update = {
+                'DEFAULT_QUANTITY': str(default_quantity),
+                'MAX_TRADE_VALUE': str(max_trade_value),
+                'STOP_LOSS_PERCENT': str(stop_loss_percent),
+                'TARGET_PERCENT': str(target_percent),
+                'MAX_POSITION_SIZE': str(max_position_size)
+            }
+            storage.update_settings(settings_update)
             
             # Update global variables
             DEFAULT_QUANTITY = default_quantity
@@ -739,12 +691,10 @@ else:
             bot_token = data.get('bot_token', os.getenv('TELEGRAM_BOT_TOKEN', ''))
             chat_id = data.get('chat_id', os.getenv('TELEGRAM_CHAT_ID', ''))
             
-            # Update settings in database
-            with app.app_context():
-                Settings.set_value('TELEGRAM_ENABLED', str(enabled).lower(), 'Telegram notifications enabled')
-                db.session.commit()
+            # Update settings in storage
+            storage.set_setting('TELEGRAM_ENABLED', str(enabled).lower())
             
-            # We don't store sensitive data like tokens in the database,
+            # We don't store sensitive data like tokens in the storage,
             # but we do update the environment variables in memory
             # Note: This won't persist across restarts on Railway
             if bot_token:
@@ -1033,7 +983,7 @@ if __name__ == "__main__":
     # For the full app only, start the required services
     # Check if we're running the market closed app or the full app
     if not BYPASS_MARKET_HOURS and not is_market_open():
-        # Market is closed - just run the lightweight version without DB or other services
+        # Market is closed - just run the lightweight version without other services
         logger.info("Running lightweight market-closed version")
         app.run(host="0.0.0.0", port=port, debug=debug)
     else:

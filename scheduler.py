@@ -112,11 +112,17 @@ def check_auth_status():
         return last_status
     
     try:
-        # Try to use the APP_URL environment variable, fall back to localhost
-        app_url = os.getenv("APP_URL", "http://localhost:5000")
-        response = requests.get(f"{app_url}/auth/status", timeout=10)
-        data = response.json()
-        is_authenticated = data.get('authenticated', False)
+        # Use file storage directly if available (when running in the same process)
+        try:
+            from file_storage import storage
+            is_authenticated = storage.get_token() is not None
+        except ImportError:
+            # Fallback to API check if file storage isn't available
+            # (when running in a separate process or container)
+            app_url = os.getenv("APP_URL", "http://localhost:5000")
+            response = requests.get(f"{app_url}/auth/status", timeout=10)
+            data = response.json()
+            is_authenticated = data.get('authenticated', False)
         
         # Update the last check time and status
         last_check_time = current_time

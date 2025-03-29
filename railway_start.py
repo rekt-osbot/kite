@@ -100,22 +100,18 @@ def main():
     # Check if market hours bypass is enabled
     bypass_market_hours = os.getenv("BYPASS_MARKET_HOURS", "False").lower() == "true"
     
-    # First run the railway setup to initialize database
-    logger.info("Running railway_setup.py...")
-    subprocess.run([sys.executable, "railway_setup.py"])
+    # Skip database initialization completely - we'll use file-based storage instead
+    logger.info("Using file-based storage instead of database to reduce costs")
     
-    if not bypass_market_hours:
-        # Only run the app during market hours
-        if not is_market_open():
-            logger.info("Market is closed. Starting lightweight version of app.")
-            # Set environment variable to tell the app to run in market closed mode
-            os.environ["MARKET_CLOSED"] = "True"
-        else:
-            logger.info("Market is open. Starting full app.")
-            os.environ["MARKET_CLOSED"] = "False"
-    else:
-        logger.info("Market hours check bypassed. Starting full app regardless of market status.")
+    # Set environment variables
+    if bypass_market_hours or is_market_open():
+        # Market is open or bypass is enabled
+        logger.info("Market is open or bypass enabled. Starting full app.")
         os.environ["MARKET_CLOSED"] = "False"
+    else:
+        # Market is closed
+        logger.info("Market is closed. Starting lightweight version of app.")
+        os.environ["MARKET_CLOSED"] = "True"
     
     # Start the Flask application using gunicorn for production
     port = int(os.getenv("PORT", 5000))
