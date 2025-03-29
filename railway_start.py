@@ -51,7 +51,9 @@ def calculate_next_market_open():
     
     # If it's a weekend, find the next Monday
     if now.weekday() > 4:  # Saturday or Sunday
-        days_to_monday = 7 - now.weekday() if now.weekday() == 6 else 1
+        days_to_monday = (7 - now.weekday()) % 7
+        if days_to_monday == 0:  # If it's already Monday
+            days_to_monday = 7
         next_market_open = (now + timedelta(days=days_to_monday)).replace(
             hour=9, minute=0, second=0, microsecond=0
         )

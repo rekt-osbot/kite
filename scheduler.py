@@ -39,6 +39,35 @@ def is_market_open():
         logger.info(f"Market closed: Outside trading hours ({now.strftime('%H:%M')})")
         return False
 
+def calculate_next_market_open():
+    """Calculate the next time the market will open"""
+    now = datetime.now(IST)
+    next_market_open = None
+    
+    # If it's a weekend, find the next Monday
+    if now.weekday() > 4:  # Saturday or Sunday
+        days_to_monday = (7 - now.weekday()) % 7
+        if days_to_monday == 0:  # If it's already Monday
+            days_to_monday = 7
+        next_market_open = (now + timedelta(days=days_to_monday)).replace(
+            hour=9, minute=0, second=0, microsecond=0
+        )
+    # If it's before market open on a weekday
+    elif now.hour < 9:
+        next_market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    # If it's after market close on a weekday (not Friday)
+    elif now.weekday() < 4 and (now.hour > 15 or (now.hour == 15 and now.minute >= 30)):
+        next_market_open = (now + timedelta(days=1)).replace(
+            hour=9, minute=0, second=0, microsecond=0
+        )
+    # If it's after market close on Friday
+    elif now.weekday() == 4 and (now.hour > 15 or (now.hour == 15 and now.minute >= 30)):
+        next_market_open = (now + timedelta(days=3)).replace(
+            hour=9, minute=0, second=0, microsecond=0
+        )
+    
+    return next_market_open
+
 def trigger_login_notification():
     """Trigger notification when login is required"""
     app_url = os.getenv("APP_URL", "")
