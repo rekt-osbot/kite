@@ -12,6 +12,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def is_market_open():
+    """
+    Check if the market is currently open.
+    Returns True if it's a weekday (Monday-Friday) and time is between 9:00 AM to 3:30 PM IST.
+    """
+    now = datetime.now()
+    # Check if it's a weekday (0 is Monday, 6 is Sunday)
+    if now.weekday() > 4:  # Saturday or Sunday
+        logger.info("Market closed: Weekend")
+        return False
+    
+    # Create datetime objects for market open (9:00 AM) and close (3:30 PM)
+    # Assuming IST timezone is correctly set on the server
+    market_open = now.replace(hour=9, minute=00, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    
+    # Check if current time is within market hours
+    if market_open <= now <= market_close:
+        return True
+    else:
+        logger.info(f"Market closed: Outside trading hours ({now.strftime('%H:%M')})")
+        return False
+
 def trigger_login_notification():
     """Trigger notification when login is required"""
     app_url = os.getenv("APP_URL", "")

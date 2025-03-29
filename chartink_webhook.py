@@ -6,11 +6,10 @@ from datetime import datetime, timedelta, date
 from flask import Flask, request, jsonify, redirect, send_from_directory
 from dotenv import load_dotenv
 from kite_connect import KiteConnect
-from scheduler import start_scheduler
+from scheduler import start_scheduler, is_market_open
 from telegram_notifier import TelegramNotifier
 from models import db, User, AuthToken, Settings
 from apscheduler.schedulers.background import BackgroundScheduler
-from nse_api import nse_api
 
 # Configure logging to output to console
 logging.basicConfig(
@@ -911,15 +910,88 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("DEBUG", "False").lower() == "true"
     
-    # Attempt to authenticate to check if token is valid
-    authenticate_kite()
+    # Import sleep and signal
+    import time
+    import signal
     
-    # Start the auth checker scheduler
-    start_scheduler()
+    # Prepare for market hours check
+    logger.info("Starting application with market hours optimization")
     
-    # Schedule the daily summary task - default at 3:30 PM IST (market close time)
-    scheduler.add_job(send_day_summary, 'cron', hour=15, minute=30, timezone='Asia/Kolkata')
-    scheduler.start()
-    
-    logger.info(f"Starting webhook server on port {port}")
-    app.run(host="0.0.0.0", port=port, debug=debug) 
+    while True:
+        # Check if market is open
+        if is_market_open():
+            logger.info("Market is open. Starting the application...")
+            
+            # Attempt to authenticate to check if token is valid
+            authenticate_kite()
+            
+            # Start the auth checker scheduler
+            start_scheduler()
+            
+            # Schedule the daily summary task - default at 3:30 PM IST (market close time)
+            scheduler.add_job(send_day_summary, 'cron', hour=15, minute=30, timezone='Asia/Kolkata')
+            scheduler.start()
+            
+            # Start the server
+            logger.info(f"Starting webhook server on port {port}")
+            
+            # Calculate time until market close
+            now = datetime.now()
+            market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+            
+            # Start the Flask application with a timeout
+            # We use a thread to run the app and set a timer to stop it at market close
+            from threading import Thread
+            
+            def run_flask_app():
+                app.run(host="0.0.0.0", port=port, debug=debug)
+            
+            flask_thread = Thread(target=run_flask_app)
+            flask_thread.daemon = True
+            flask_thread.start()
+            
+            # Wait until market close
+            seconds_until_close = (market_close - now).total_seconds()
+            if seconds_until_close > 0:
+                logger.info(f"App will run for {seconds_until_close/60:.1f} minutes until market close")
+                time.sleep(seconds_until_close)
+            
+            logger.info("Market has closed. Shutting down application.")
+            # Send SIGTERM to the current process to gracefully shut down Flask
+            os.kill(os.getpid(), signal.SIGTERM)
+            
+            # Small delay to ensure shutdown message is logged
+            time.sleep(5)
+        else:
+            # Market is closed, calculate time until next market open
+            now = datetime.now()
+            next_market_open = None
+            
+            # If it's a weekend, find the next Monday
+            if now.weekday() > 4:  # Saturday or Sunday
+                days_to_monday = 7 - now.weekday() if now.weekday() == 6 else 1
+                next_market_open = (now + timedelta(days=days_to_monday)).replace(
+                    hour=9, minute=0, second=0, microsecond=0
+                )
+            # If it's before market open on a weekday
+            elif now.hour < 9:
+                next_market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
+            # If it's after market close on a weekday (not Friday)
+            elif now.weekday() < 4 and (now.hour > 15 or (now.hour == 15 and now.minute >= 30)):
+                next_market_open = (now + timedelta(days=1)).replace(
+                    hour=9, minute=0, second=0, microsecond=0
+                )
+            # If it's after market close on Friday
+            elif now.weekday() == 4 and (now.hour > 15 or (now.hour == 15 and now.minute >= 30)):
+                next_market_open = (now + timedelta(days=3)).replace(
+                    hour=9, minute=0, second=0, microsecond=0
+                )
+            
+            if next_market_open:
+                wait_seconds = (next_market_open - now).total_seconds()
+                logger.info(f"Market is closed. Sleeping until next market open: {next_market_open.strftime('%Y-%m-%d %H:%M:%S')} ({wait_seconds/3600:.1f} hours)")
+                time.sleep(wait_seconds)
+            else:
+                # Fallback - sleep for 15 minutes and check again
+                logger.info("Could not determine next market open time. Sleeping for 15 minutes.")
+                time.sleep(900)  # 15 minutes 

@@ -1,1 +1,1 @@
-web: python railway_setup.py && gunicorn chartink_webhook:app 
+web: python railway_setup.py && python chartink_webhook.py 
