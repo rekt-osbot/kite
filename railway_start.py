@@ -117,10 +117,43 @@ def main():
         logger.info("Market hours check bypassed. Starting full app regardless of market status.")
         os.environ["MARKET_CLOSED"] = "False"
     
-    # Start the Flask application - it will handle the market closed case internally
-    logger.info("Starting chartink_webhook.py...")
-    cmd = [sys.executable, "chartink_webhook.py"]
-    subprocess.run(cmd)
+    # Start the Flask application using gunicorn for production
+    port = int(os.getenv("PORT", 5000))
+    logger.info(f"Starting chartink_webhook.py with gunicorn on port {port}...")
+    
+    # Import the app without running it
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    
+    # Use gunicorn for production
+    try:
+        from gunicorn.app.wsgiapp import WSGIApplication
+        
+        class GunicornApp(WSGIApplication):
+            def __init__(self, app_uri, options=None):
+                self.options = options or {}
+                self.app_uri = app_uri
+                super().__init__()
+                
+            def load_config(self):
+                for key, value in self.options.items():
+                    if key in self.cfg.settings and value is not None:
+                        self.cfg.set(key.lower(), value)
+        
+        options = {
+            'bind': f'0.0.0.0:{port}',
+            'workers': 1,  # Using just 1 worker to save resources
+            'timeout': 120,
+            'accesslog': '-',  # Log to stdout
+            'errorlog': '-',   # Log errors to stdout
+            'loglevel': 'info'
+        }
+        
+        # Run the gunicorn app
+        GunicornApp('chartink_webhook:app', options).run()
+    except ImportError:
+        # Fallback to direct Flask app execution if gunicorn is not available
+        logger.warning("Gunicorn not available, falling back to Flask development server")
+        subprocess.run([sys.executable, "chartink_webhook.py"])
 
 if __name__ == "__main__":
     main() 

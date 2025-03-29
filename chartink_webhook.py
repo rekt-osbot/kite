@@ -300,7 +300,7 @@ def auth_status():
             
             if token and not token.is_expired:
                 # Valid token found, get user info
-                user = User.query.get(token.user_id)
+                user = db.session.get(User, token.user_id)
                 
                 # Set token in KiteConnect instance if needed
                 if kite.access_token != token.access_token:
@@ -336,7 +336,7 @@ def authenticate_kite():
                     kite.set_access_token(token.access_token)
                 
                 # Get user info
-                user = User.query.get(token.user_id)
+                user = db.session.get(User, token.user_id)
                 logger.info(f"Kite API authenticated as {user.username}")
                 return True
             
@@ -662,29 +662,36 @@ def get_alerts():
         logger.error(f"Error getting alerts: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/api/settings', methods=['GET'])
+@app.route('/api/settings')
 def get_settings():
-    """Get application settings"""
+    """Get user settings"""
     try:
         with app.app_context():
-            settings = {
-                'trading': {
-                    'default_quantity': Settings.get_value('DEFAULT_QUANTITY', str(DEFAULT_QUANTITY)),
-                    'max_trade_value': Settings.get_value('MAX_TRADE_VALUE', str(MAX_TRADE_VALUE)),
-                    'stop_loss_percent': Settings.get_value('STOP_LOSS_PERCENT', str(STOP_LOSS_PERCENT)),
-                    'target_percent': Settings.get_value('TARGET_PERCENT', str(TARGET_PERCENT)),
-                    'max_position_size': Settings.get_value('MAX_POSITION_SIZE', str(MAX_POSITION_SIZE))
-                },
-                'telegram': {
-                    'enabled': Settings.get_value('TELEGRAM_ENABLED', 'true'),
-                    'bot_token': os.getenv('TELEGRAM_BOT_TOKEN', ''),
-                    'chat_id': os.getenv('TELEGRAM_CHAT_ID', '')
-                }
-            }
-            return jsonify({"status": "success", "settings": settings})
+            # Find the most recent valid token
+            token = AuthToken.query.order_by(AuthToken.created_at.desc()).first()
+            
+            if token and not token.is_expired:
+                # Valid token found, get user info
+                user = db.session.get(User, token.user_id)
+                
+                # Calculate expiration time
+                expiry_time = token.expires_at
+                
+                # Get all settings
+                all_settings = Settings.query.all()
+                settings_dict = {s.key: s.value for s in all_settings}
+                
+                return jsonify({
+                    "status": "success", 
+                    "settings": settings_dict,
+                    "user": user.username
+                })
+            
+            # No valid token found
+            return jsonify({"status": "error", "message": "Authentication required"})
     except Exception as e:
-        logger.error(f"Error getting settings: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.error(f"Settings retrieval failed: {e}")
+        return jsonify({"status": "error", "message": str(e)})
 
 @app.route('/api/settings/trading', methods=['POST'])
 def update_trading_settings():
