@@ -1,13 +1,22 @@
+# Core dependencies
 requests==2.31.0
 python-dotenv==1.0.0
 flask==2.3.3
 gunicorn==21.2.0
+
+# Notification systems
 python-telegram-bot==13.15
+
+# Scheduler and time handling
 apscheduler==3.6.3
 pytz==2023.3
-# Add kiteconnect for Zerodha API interaction
+python-dateutil==2.8.2
+
+# Zerodha API interaction
 kiteconnect==4.1.0
-# Add other required dependencies
+
+# Authentication
 pyjwt==2.8.0
-# For handling dates and times
-python-dateutil==2.8.2 
+
+# Lightweight dependencies - prefer these over heavier alternatives
+simplejson==3.19.2 

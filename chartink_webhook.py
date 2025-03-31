@@ -9,6 +9,8 @@ from flask import Flask, request, jsonify, redirect, send_from_directory, render
 from dotenv import load_dotenv
 from scheduler import start_scheduler, is_market_open, calculate_next_market_open
 from nse_holidays import is_market_holiday, get_next_trading_day
+from token_manager import token_manager
+import memory_optimizer  # Import memory optimizer
 
 # Configure logging to output to console
 logging.basicConfig(
@@ -109,8 +111,11 @@ MARKET_CLOSED_HTML = """
 """
 
 def create_market_closed_app():
-    """Create a Flask app that only shows a 'market closed' page"""
+    """Create a Flask app that only shows a 'market closed' page with memory optimization"""
     closed_app = Flask(__name__)
+    
+    # Enable memory optimization for minimal app
+    memory_optimizer.start_optimization()
     
     @closed_app.route('/', defaults={'path': ''})
     @closed_app.route('/<path:path>')
@@ -133,6 +138,9 @@ def create_market_closed_app():
                 if holiday.get('date') == date_str:
                     closure_reason = f"Market is closed for {holiday.get('description')}"
                     break
+            
+            # Clean up after use
+            memory_optimizer.cleanup_modules(['nse_holidays'])
         else:
             # Must be outside trading hours
             closure_reason = "Market is closed outside trading hours"
@@ -146,6 +154,11 @@ def create_market_closed_app():
             next_open_time=next_open_str,
             closure_reason=closure_reason
         )
+    
+    # Register shutdown function to stop optimization
+    @closed_app.teardown_appcontext
+    def shutdown_memory_optimizer(exception=None):
+        memory_optimizer.stop_optimization()
     
     return closed_app
 
@@ -186,12 +199,18 @@ if not BYPASS_MARKET_HOURS and not is_market_open():
             
             telegram.send_message(message)
             logger.info(f"Sent market holiday notification via Telegram: Market closed for {holiday_desc}")
+            
+            # Clean up modules to save memory
+            memory_optimizer.cleanup_modules(['telegram_notifier', 'nse_holidays'])
         except Exception as e:
             logger.error(f"Failed to send market holiday notification: {e}")
     
     app = create_market_closed_app()
 else:
     logger.info("Market is open or bypass enabled. Starting the full application...")
+    
+    # Start memory optimization in background
+    memory_optimizer.start_optimization()
     
     # Only import required modules when the market is open
     from kite_connect import KiteConnect
@@ -202,6 +221,14 @@ else:
     
     # Initialize Flask app
     app = Flask(__name__)
+
+    # Register token status endpoints
+    try:
+        from token_status import register_token_endpoints
+        app = register_token_endpoints(app)
+        logger.info("Registered token status endpoints")
+    except Exception as e:
+        logger.error(f"Failed to register token status endpoints: {e}")
 
     # Initialize Kite Connect with rate limiting
     kite_base = KiteConnect()
@@ -218,13 +245,14 @@ else:
         """Load trading configuration from storage"""
         settings = storage.get_all_settings()
         
-        return {
+        # Use memory_optimizer to optimize the dictionary
+        return memory_optimizer.optimize_dict({
             'DEFAULT_QUANTITY': int(settings.get('DEFAULT_QUANTITY', "1")),
             'MAX_TRADE_VALUE': float(settings.get('MAX_TRADE_VALUE', "5000")),
             'STOP_LOSS_PERCENT': float(settings.get('STOP_LOSS_PERCENT', "2")),
             'TARGET_PERCENT': float(settings.get('TARGET_PERCENT', "4")),
             'MAX_POSITION_SIZE': float(settings.get('MAX_POSITION_SIZE', "5000"))
-        }
+        })
 
     # Initialize trading configuration
     config = load_trading_config()
@@ -232,7 +260,7 @@ else:
     MAX_TRADE_VALUE = config['MAX_TRADE_VALUE']
     STOP_LOSS_PERCENT = config['STOP_LOSS_PERCENT']
     TARGET_PERCENT = config['TARGET_PERCENT']
-    MAX_POSITION_SIZE = config['MAX_POSITION_SIZE']
+    MAX_POSITION_SIZE = config.get('MAX_POSITION_SIZE', 5000)
 
     # Store received alerts in memory (cleared on restart)
     received_alerts = []
@@ -337,20 +365,22 @@ else:
             return jsonify({"status": "error", "authenticated": False, "message": str(e)})
 
     def authenticate_kite():
-        """Ensure Kite API is authenticated using stored token when possible"""
+        """Ensure Kite API is authenticated using token manager"""
         try:
-            # Get token from storage
-            token_data = storage.get_token()
-            
-            if token_data:
-                # Valid token found, set in KiteConnect instance
-                if kite.access_token != token_data.get('access_token'):
-                    kite.set_access_token(token_data.get('access_token'))
+            # Check if trading is enabled via token manager
+            if token_manager.is_trading_enabled():
+                # Get token from token manager
+                access_token = token_manager.get_token()
                 
-                logger.info(f"Kite API authenticated as {token_data.get('username')}")
+                # Update Kite instance if token has changed
+                if kite.access_token != access_token:
+                    kite.set_access_token(access_token)
+                
+                logger.info(f"Kite API authenticated as {token_manager.username}")
                 return True
             
-            # No valid token found
+            # Token is invalid or expired
+            logger.warning("Trading disabled: Token has expired or is invalid")
             return False
         except Exception as e:
             logger.error(f"Kite authentication error: {e}")
@@ -1043,6 +1073,11 @@ else:
             logger.error(f"Error sending day summary: {e}")
             return jsonify({"status": "error", "message": str(e)}), 500
 
+    # Add shutdown hook to clean up resources
+    @app.teardown_appcontext
+    def shutdown_memory_optimizer(exception=None):
+        memory_optimizer.stop_optimization()
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("DEBUG", "False").lower() == "true"
@@ -1055,7 +1090,7 @@ if __name__ == "__main__":
     # Check if we're running the market closed app or the full app
     if not BYPASS_MARKET_HOURS and not is_market_open():
         # Market is closed - just run the lightweight version without other services
-        logger.info("Running lightweight market-closed version")
+        logger.info("Running lightweight market-closed version with memory optimization")
         app.run(host="0.0.0.0", port=port, debug=debug)
     else:
         # Market is open - run the full app with all services
@@ -1070,5 +1105,5 @@ if __name__ == "__main__":
         scheduler.start()
     
         # Start the server (full app)
-        logger.info(f"Starting webhook server on port {port}")
+        logger.info(f"Starting webhook server on port {port} with memory optimization")
         app.run(host="0.0.0.0", port=port, debug=debug) 

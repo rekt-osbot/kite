@@ -6,6 +6,11 @@ from datetime import datetime
 from urllib.parse import urlencode
 import webbrowser
 from dotenv import load_dotenv
+import logging
+from token_manager import token_manager
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 class KiteConnect:
     """
@@ -20,7 +25,6 @@ class KiteConnect:
         # API credentials
         self.api_key = os.getenv("KITE_API_KEY")
         self.api_secret = os.getenv("KITE_API_SECRET")
-        self.access_token = os.getenv("KITE_ACCESS_TOKEN")
         
         # Base URLs
         self.login_url = "https://kite.zerodha.com/connect/login"
@@ -31,6 +35,8 @@ class KiteConnect:
             "X-Kite-Version": "3"
         }
         
+        # Get access token from token manager
+        self.access_token = token_manager.get_token()
         if self.access_token:
             self.set_access_token(self.access_token)
     
@@ -38,9 +44,6 @@ class KiteConnect:
         """Set the access token for API requests"""
         self.access_token = access_token
         self.headers["Authorization"] = f"token {self.api_key}:{self.access_token}"
-        
-        # No longer need to update .env file as we store in database
-        # The token will be retrieved from database on startup
     
     def get_login_url(self):
         """Get the Zerodha login URL for web authentication flow"""
@@ -110,11 +113,23 @@ class KiteConnect:
             raise Exception(f"Failed to generate session: {response.text}")
         
         data = response.json()["data"]
+        access_token = data["access_token"]
         
-        # Set the access token
-        self.set_access_token(data["access_token"])
+        # Set the access token using token manager
+        self.set_access_token(access_token)
         
-        print(f"Successfully authenticated! Access token: {self.access_token}")
+        # Save token to token manager with user details
+        try:
+            profile_data = self.get_profile()
+            user_id = profile_data.get('user_id')
+            username = profile_data.get('user_name')
+            token_manager.save_token(user_id, username, access_token)
+            logger.info(f"Successfully authenticated as {username}")
+        except Exception as e:
+            logger.error(f"Failed to get user profile after authentication: {e}")
+            # Fall back to saving token without user details
+            token_manager.save_token("unknown", "Zerodha User", access_token)
+        
         return data
     
     def get_profile(self):
@@ -215,6 +230,10 @@ class KiteConnect:
         Returns:
         str: Order ID
         """
+        # Verify trading is enabled before placing orders
+        if not token_manager.is_trading_enabled():
+            raise Exception("Trading is currently disabled - Token is expired or invalid")
+            
         response = requests.post(
             f"{self.api_url}/orders/{variety}",
             headers=self.headers,
@@ -257,6 +276,10 @@ class KiteConnect:
         Returns:
         str: Order ID
         """
+        # Verify trading is enabled before cancelling orders
+        if not token_manager.is_trading_enabled():
+            raise Exception("Trading is currently disabled - Token is expired or invalid")
+            
         response = requests.delete(
             f"{self.api_url}/orders/{variety}/{order_id}",
             headers=self.headers
@@ -275,24 +298,33 @@ class KiteConnect:
             headers=self.headers
         )
         
-        if response.status_code != 200:
-            raise Exception(f"Failed to logout: {response.text}")
+        # Clear token in token manager regardless of API response
+        try:
+            if response.status_code == 200:
+                logger.info("Successfully logged out from Zerodha API")
+            storage = token_manager.storage  # Access file storage
+            storage.clear()  # Clear stored data
+            logger.info("Cleared stored token data")
+        except Exception as e:
+            logger.error(f"Error clearing token data: {e}")
         
+        # Clear instance variables
         self.access_token = None
         self.headers.pop("Authorization", None)
         
-        # Update the token in .env file
-        self._update_token("")
-        
-        return response.json()["data"]
+        return True
 
 def main():
     kite = KiteConnect()
     
     # Check if access token exists and is valid
     try:
-        profile = kite.get_profile()
-        print(f"Already logged in as {profile['user_name']}")
+        if token_manager.is_trading_enabled():
+            profile = kite.get_profile()
+            print(f"Already logged in as {profile['user_name']}")
+        else:
+            print("Token expired or invalid. Login required.")
+            kite.login()
     except Exception as e:
         print(f"Error: {e}")
         print("Need to login again...")

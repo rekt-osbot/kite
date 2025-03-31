@@ -9,5 +9,12 @@ healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 
+# Resource optimization
+[env]
+NUM_WORKERS = "1"
+WEB_CONCURRENCY = "1"
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
+
 [phases.setup]
-nixPackages = ["postgresql"] 
+nixPackages = [] # Remove postgresql 
