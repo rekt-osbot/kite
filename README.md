@@ -19,6 +19,9 @@ This project is an algorithmic trading bot that integrates Zerodha's Kite API wi
 | `file_storage.py` | File-based JSON storage for tokens and settings |
 | `telegram_notifier.py` | Notification system for system status and trade alerts |
 | `scheduler.py` | Background task scheduler |
+| `token_manager.py` | Centralized token management with expiration handling |
+| `token_status.py` | Token status UI endpoints and monitoring dashboard |
+| `memory_optimizer.py` | Memory usage optimization for Railway deployment |
 
 ### Design Patterns
 
@@ -26,6 +29,7 @@ This project is an algorithmic trading bot that integrates Zerodha's Kite API wi
 - **Lazy Loading**: Used to resolve circular import dependencies
 - **Webhook Processing**: Event-driven architecture for trade signals
 - **Stateless Operation**: Designed to minimize persistent state requirements
+- **Resource Optimization**: Adaptive resource usage based on market status
 
 ## Technical Implementations
 
@@ -86,7 +90,54 @@ ModuleB = lazy_import('module_b', 'ModuleB')
 instance = ModuleB()  # Only loaded at this point
 ```
 
-### 4. Signal Processing Logic
+### 4. Token Management and Expiration Handling
+
+The `token_manager.py` module provides centralized token management:
+
+- Reliable detection of token expiration at 6 AM IST
+- Clear user notifications for token renewal with detailed instructions
+- Graceful degradation by disabling trading when tokens expire
+- Centralized token storage and validation
+
+Example usage:
+```python
+from token_manager import token_manager
+
+# Check token validity before trading
+if token_manager.is_token_valid():
+    # Execute trading logic
+else:
+    # Handle expired token with user notification
+    token_manager.notify_token_expired()
+```
+
+### 5. Memory Optimization for Railway Deployment
+
+The `memory_optimizer.py` module implements resource optimization strategies:
+
+- Adaptive garbage collection based on application state
+- Module unloading to free memory in long-running processes
+- Dictionary optimization to remove empty values
+- Background cleanup thread with minimal overhead
+
+Example usage:
+```python
+import memory_optimizer
+
+# Start optimization in the background
+memory_optimizer.start_optimization()
+
+# Clean up unused modules
+memory_optimizer.cleanup_modules(['pandas', 'numpy'])
+
+# Optimize dictionaries
+optimized_dict = memory_optimizer.optimize_dict(large_dict)
+
+# Stop optimization thread when shutting down
+memory_optimizer.stop_optimization()
+```
+
+### 6. Signal Processing Logic
 
 The webhook handler parses ChartInk alerts and determines trading intent through keyword analysis:
 
@@ -105,7 +156,7 @@ Buy/sell signal classification uses these keyword sets:
 - **Buy Keywords**: "buy", "bull", "bullish", "long", "breakout", "up", "uptrend", "support", "bounce", "reversal", "upside"
 - **Sell Keywords**: "sell", "bear", "bearish", "short", "breakdown", "down", "downtrend", "resistance", "fall", "decline"
 
-### 5. File-Based Storage
+### 7. File-Based Storage
 
 The `file_storage.py` provides a lightweight alternative to database storage:
 
@@ -131,7 +182,18 @@ MAX_POSITION_SIZE     # Maximum position size
 API_RATE_LIMIT        # API calls per second (default: 3)
 PORT                  # Server port (default: 5000)
 BYPASS_MARKET_HOURS   # Testing flag to bypass market hours check
+MINIMAL_MODE          # Flag for running in minimal mode
 ```
+
+### Railway Deployment Optimization
+
+The application is optimized for Railway deployment with:
+
+- Minimal resource usage during market closed hours
+- Adaptive sleep strategies to reduce CPU usage
+- Worker and thread count optimized for memory efficiency
+- Automatic garbage collection to prevent memory leaks
+- Module unloading to free memory when not needed
 
 ### Market Constants
 
@@ -166,6 +228,8 @@ Market operation parameters:
 1. ✅ **Market Status Determination**: Implemented the `nse_holidays.py` module for accurate market status checking
 2. ✅ **API Rate Limiting**: Added the token bucket rate limiter to prevent API rate limit violations
 3. ✅ **Circular Dependency Resolution**: Implemented lazy imports to avoid circular import errors
+4. ✅ **Token Expiration Handling**: Added centralized token management with accurate 6 AM IST expiration detection, clear user notifications, and token status dashboard
+5. ✅ **Railway Environment Optimization**: Implemented memory optimization with adaptive resource usage, garbage collection, and module unloading to reduce costs on Railway
 
 ## For AI Developers
 
@@ -175,4 +239,6 @@ When making modifications to this codebase, consider:
 2. **Market Hours**: Trading logic should check market status before executing trades
 3. **Error Handling**: API errors should be caught and handled appropriately 
 4. **Logging**: Maintain detailed logging for troubleshooting
-5. **Dependencies**: Use lazy imports for any cross-module dependencies that could become circular 
+5. **Dependencies**: Use lazy imports for any cross-module dependencies that could become circular
+6. **Memory Usage**: Leverage the memory optimizer for resource-intensive operations
+7. **Token Management**: Use the token manager for all token-related operations 
