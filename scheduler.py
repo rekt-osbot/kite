@@ -5,6 +5,7 @@ import requests
 import threading
 import pytz
 from datetime import datetime, timedelta
+from nse_holidays import is_market_holiday, get_next_trading_day
 
 # Configure logging to output to console
 logging.basicConfig(
@@ -19,12 +20,17 @@ IST = pytz.timezone('Asia/Kolkata')
 def is_market_open():
     """
     Check if the market is currently open.
-    Returns True if it's a weekday (Monday-Friday) and time is between 9:00 AM to 3:30 PM IST.
+    Returns True if it's a weekday (Monday-Friday), not a holiday, and time is between 9:00 AM to 3:30 PM IST.
     """
     now = datetime.now(IST)
     # Check if it's a weekday (0 is Monday, 6 is Sunday)
     if now.weekday() > 4:  # Saturday or Sunday
         logger.info("Market closed: Weekend")
+        return False
+    
+    # Check if it's a holiday
+    if is_market_holiday(now):
+        logger.info("Market closed: Holiday")
         return False
     
     # Create datetime objects for market open (9:00 AM) and close (3:30 PM)
@@ -42,31 +48,26 @@ def is_market_open():
 def calculate_next_market_open():
     """Calculate the next time the market will open"""
     now = datetime.now(IST)
-    next_market_open = None
     
-    # If it's a weekend, find the next Monday
-    if now.weekday() > 4:  # Saturday or Sunday
-        days_to_monday = (7 - now.weekday()) % 7
-        if days_to_monday == 0:  # If it's already Monday
-            days_to_monday = 7
-        next_market_open = (now + timedelta(days=days_to_monday)).replace(
-            hour=9, minute=0, second=0, microsecond=0
-        )
-    # If it's before market open on a weekday
-    elif now.hour < 9:
-        next_market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
-    # If it's after market close on a weekday (not Friday)
-    elif now.weekday() < 4 and (now.hour > 15 or (now.hour == 15 and now.minute >= 30)):
-        next_market_open = (now + timedelta(days=1)).replace(
-            hour=9, minute=0, second=0, microsecond=0
-        )
-    # If it's after market close on Friday
-    elif now.weekday() == 4 and (now.hour > 15 or (now.hour == 15 and now.minute >= 30)):
-        next_market_open = (now + timedelta(days=3)).replace(
-            hour=9, minute=0, second=0, microsecond=0
-        )
+    # Get the next trading day
+    next_trading_day = get_next_trading_day(now.date())
     
-    return next_market_open
+    # If today is a trading day and it's before market open
+    if not is_market_holiday(now) and now.weekday() < 5 and now.hour < 9:
+        # Market opens today at 9:00 AM
+        return now.replace(hour=9, minute=0, second=0, microsecond=0)
+    
+    # If we have a valid next trading day
+    if next_trading_day:
+        # Market opens at 9:00 AM on the next trading day
+        next_open = datetime.combine(next_trading_day, 
+                                   datetime.min.time()).replace(
+                                      hour=9, minute=0, second=0, microsecond=0, tzinfo=IST)
+        return next_open
+    
+    # Fallback - return None if we can't determine
+    logger.warning("Could not determine next market open time")
+    return None
 
 def trigger_login_notification():
     """Trigger notification when login is required"""

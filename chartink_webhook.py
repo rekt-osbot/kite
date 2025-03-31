@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, date
 from flask import Flask, request, jsonify, redirect, send_from_directory, render_template_string
 from dotenv import load_dotenv
 from scheduler import start_scheduler, is_market_open, calculate_next_market_open
+from nse_holidays import is_market_holiday, get_next_trading_day
 
 # Configure logging to output to console
 logging.basicConfig(
@@ -62,6 +63,15 @@ MARKET_CLOSED_HTML = """
             color: #16a085;
             font-weight: bold;
         }
+        .reason {
+            background-color: #f8edeb;
+            padding: 10px;
+            border-radius: 5px;
+            border-left: 4px solid #e67e22;
+            margin: 20px 0;
+            text-align: left;
+            font-weight: bold;
+        }
         footer {
             margin-top: 40px;
             font-size: 0.8em;
@@ -74,15 +84,19 @@ MARKET_CLOSED_HTML = """
         <h1>Market is Currently Closed</h1>
         <p>This trading bot only operates during market hours to optimize resource usage.</p>
         
+        <div class="reason">
+            <p>{{closure_reason}}</p>
+        </div>
+        
         <div class="time">
             <p>Current time: <strong>{{current_time}}</strong></p>
             <p class="next">Next market open: <strong>{{next_open_time}}</strong></p>
         </div>
         
         <div>
-            <h3>Market Hours:</h3>
+            <h3>Regular Market Hours:</h3>
             <p>Monday - Friday: 9:00 AM - 3:30 PM IST</p>
-            <p>Weekends: Closed</p>
+            <p>Weekends & Holidays: Closed</p>
         </div>
     </div>
     
@@ -106,13 +120,31 @@ def create_market_closed_app():
         # Calculate next market open time
         next_market_open = calculate_next_market_open()
         
+        # Get reason for market closure
+        closure_reason = "Market is closed"
+        if now.weekday() > 4:
+            closure_reason = "Market is closed for the weekend"
+        elif is_market_holiday():
+            # Get the holiday description
+            from nse_holidays import fetch_nse_holidays
+            holidays = fetch_nse_holidays()
+            date_str = now.strftime('%Y-%m-%d')
+            for holiday in holidays:
+                if holiday.get('date') == date_str:
+                    closure_reason = f"Market is closed for {holiday.get('description')}"
+                    break
+        else:
+            # Must be outside trading hours
+            closure_reason = "Market is closed outside trading hours"
+        
         next_open_str = next_market_open.strftime('%Y-%m-%d %H:%M:%S IST') if next_market_open else "Unknown"
         current_time_str = now.strftime('%Y-%m-%d %H:%M:%S IST')
         
         return render_template_string(
             MARKET_CLOSED_HTML, 
             current_time=current_time_str,
-            next_open_time=next_open_str
+            next_open_time=next_open_str,
+            closure_reason=closure_reason
         )
     
     return closed_app
@@ -120,6 +152,43 @@ def create_market_closed_app():
 # Check if we should run the full app or just the market-closed version
 if not BYPASS_MARKET_HOURS and not is_market_open():
     logger.info(f"Market is closed at {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')}. Serving market-closed page.")
+    
+    # Send Telegram notification about market closure if it's due to a holiday
+    now = datetime.now(IST)
+    if is_market_holiday():
+        # Import only what we need to avoid circular imports
+        try:
+            from telegram_notifier import TelegramNotifier
+            from nse_holidays import fetch_nse_holidays
+            
+            # Initialize Telegram notifier
+            telegram = TelegramNotifier()
+            
+            # Get holiday description
+            holidays = fetch_nse_holidays()
+            date_str = now.strftime('%Y-%m-%d')
+            holiday_desc = "Holiday"
+            for holiday in holidays:
+                if holiday.get('date') == date_str:
+                    holiday_desc = holiday.get('description', 'Holiday')
+                    break
+            
+            # Calculate next market open
+            next_market_open = calculate_next_market_open()
+            next_open_str = next_market_open.strftime('%Y-%m-%d %H:%M:%S IST') if next_market_open else "Unknown"
+            
+            # Send notification
+            message = f"🔴 <b>Market Closed: {holiday_desc}</b>\n\n" \
+                    f"The trading bot has been shut down for today due to a market holiday.\n" \
+                    f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S IST')}\n" \
+                    f"Next market open: {next_open_str}\n\n" \
+                    f"The bot will automatically restart when the market reopens."
+            
+            telegram.send_message(message)
+            logger.info(f"Sent market holiday notification via Telegram: Market closed for {holiday_desc}")
+        except Exception as e:
+            logger.error(f"Failed to send market holiday notification: {e}")
+    
     app = create_market_closed_app()
 else:
     logger.info("Market is open or bypass enabled. Starting the full application...")
