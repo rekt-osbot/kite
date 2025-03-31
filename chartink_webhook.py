@@ -249,19 +249,13 @@ else:
         # Use memory_optimizer to optimize the dictionary
         return memory_optimizer.optimize_dict({
             'DEFAULT_QUANTITY': int(settings.get('DEFAULT_QUANTITY', "1")),
-            'MAX_TRADE_VALUE': float(settings.get('MAX_TRADE_VALUE', "5000")),
-            'STOP_LOSS_PERCENT': float(settings.get('STOP_LOSS_PERCENT', "2")),
-            'TARGET_PERCENT': float(settings.get('TARGET_PERCENT', "4")),
-            'MAX_POSITION_SIZE': float(settings.get('MAX_POSITION_SIZE', "5000"))
+            'MAX_TRADE_VALUE': float(settings.get('MAX_TRADE_VALUE', "5000"))
         })
 
     # Initialize trading configuration
     config = load_trading_config()
     DEFAULT_QUANTITY = config['DEFAULT_QUANTITY']
     MAX_TRADE_VALUE = config['MAX_TRADE_VALUE']
-    STOP_LOSS_PERCENT = config['STOP_LOSS_PERCENT']
-    TARGET_PERCENT = config['TARGET_PERCENT']
-    MAX_POSITION_SIZE = config.get('MAX_POSITION_SIZE', 5000)
 
     # Store received alerts in memory (cleared on restart)
     received_alerts = []
@@ -603,11 +597,15 @@ else:
                 if remaining_funds < price:
                     logger.warning(f"Not enough remaining funds (₹{remaining_funds}) to place order for {stock} at ₹{price}")
                     continue
+
+                # If price is higher than MAX_TRADE_VALUE, skip this stock
+                if price > MAX_TRADE_VALUE:
+                    logger.warning(f"Stock price (₹{price}) exceeds maximum trade value (₹{MAX_TRADE_VALUE}), skipping {stock}")
+                    continue
                 
-                # Position sizing: Calculate quantity based on max position size per trade
-                # Ensure it doesn't exceed available funds and follows max position size rule
-                max_position_value = min(MAX_POSITION_SIZE, remaining_funds)
-                quantity = int(max_position_value / price)
+                # Position sizing: Calculate quantity based on max trade value per stock
+                max_value_for_trade = min(MAX_TRADE_VALUE, remaining_funds)
+                quantity = int(max_value_for_trade / price)
                 
                 # Fallback to default quantity if calculation fails or results in zero
                 if quantity <= 0:
@@ -615,7 +613,7 @@ else:
                     logger.warning(f"Using default quantity ({DEFAULT_QUANTITY}) for {stock}")
                 
                 # Log the position sizing calculation
-                logger.info(f"Position sizing for {stock}: Max position size = ₹{MAX_POSITION_SIZE}, " +
+                logger.info(f"Position sizing for {stock}: Max trade value = ₹{MAX_TRADE_VALUE}, " +
                             f"Price = ₹{price}, Calculated quantity = {quantity}")
                 
                 # Prepend NSE: to stock if not already present
@@ -632,22 +630,6 @@ else:
                 # Track funds used
                 funds_used += (price * quantity)
                 logger.info(f"Allocated ₹{price * quantity:.2f} for {stock}, total allocated: ₹{funds_used:.2f}")
-                
-                # If it's a BUY order, place a corresponding stop-loss
-                if action == "BUY":
-                    # Calculate stop-loss price
-                    stop_loss_price = round(price * (1 - STOP_LOSS_PERCENT/100), 1)
-                    
-                    # Place stop-loss order
-                    sl_order_id = place_order(
-                        stock, 
-                        "SELL", 
-                        quantity, 
-                        order_type="SL", 
-                        price=stop_loss_price
-                    )
-                    
-                    logger.info(f"Placed SL order: {sl_order_id} for {stock}")
                 
                 # Log the trade details
                 trade_details = {
@@ -788,7 +770,7 @@ else:
         """Update trading settings"""
         try:
             # Declare globals at the beginning of the function
-            global DEFAULT_QUANTITY, MAX_TRADE_VALUE, STOP_LOSS_PERCENT, TARGET_PERCENT, MAX_POSITION_SIZE
+            global DEFAULT_QUANTITY, MAX_TRADE_VALUE
             
             data = request.json
             
@@ -799,36 +781,24 @@ else:
             # Extract settings
             default_quantity = data.get('default_quantity', DEFAULT_QUANTITY)
             max_trade_value = data.get('max_trade_value', MAX_TRADE_VALUE)
-            stop_loss_percent = data.get('stop_loss_percent', STOP_LOSS_PERCENT)
-            target_percent = data.get('target_percent', TARGET_PERCENT)
-            max_position_size = data.get('max_position_size', MAX_POSITION_SIZE)
             
             # Validate settings
             try:
                 default_quantity = int(default_quantity)
                 max_trade_value = float(max_trade_value)
-                stop_loss_percent = float(stop_loss_percent)
-                target_percent = float(target_percent)
-                max_position_size = float(max_position_size)
             except:
                 return jsonify({"status": "error", "message": "Invalid setting values"}), 400
             
             # Update settings in storage
             settings_update = {
                 'DEFAULT_QUANTITY': str(default_quantity),
-                'MAX_TRADE_VALUE': str(max_trade_value),
-                'STOP_LOSS_PERCENT': str(stop_loss_percent),
-                'TARGET_PERCENT': str(target_percent),
-                'MAX_POSITION_SIZE': str(max_position_size)
+                'MAX_TRADE_VALUE': str(max_trade_value)
             }
             storage.update_settings(settings_update)
             
             # Update global variables
             DEFAULT_QUANTITY = default_quantity
             MAX_TRADE_VALUE = max_trade_value
-            STOP_LOSS_PERCENT = stop_loss_percent
-            TARGET_PERCENT = target_percent
-            MAX_POSITION_SIZE = max_position_size
             
             return jsonify({"status": "success", "message": "Trading settings updated"})
         except Exception as e:

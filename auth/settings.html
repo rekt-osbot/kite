@@ -401,13 +401,13 @@
                 <h2>Trading Parameters</h2>
             </div>
             <div class="info-box">
-                <p><i class="ri-information-line"></i> <strong>Order Type:</strong> All orders use CNC (delivery) type for equity trading. Stop-loss orders are placed automatically for risk management.</p>
+                <p><i class="ri-information-line"></i> <strong>Order Type:</strong> All orders use CNC (delivery) type for equity trading. Position sizing is calculated based on Maximum Trade Value per stock.</p>
             </div>
             <form id="trading-settings-form">
                 <div class="form-group">
                     <label for="defaultQuantity">Default Quantity</label>
                     <input type="number" id="defaultQuantity" min="1" step="1" required>
-                    <small>Default quantity to trade when not calculated based on price</small>
+                    <small>Default quantity to trade when not calculated based on price (fallback value)</small>
                 </div>
                 
                 <div class="form-group">
@@ -416,34 +416,7 @@
                         <input type="number" id="maxTradeValue" min="1000" step="1000" required>
                         <span class="input-group-addon">INR</span>
                     </div>
-                    <small>Maximum amount to allocate per trade</small>
-                </div>
-                
-                <div class="form-group">
-                    <label for="maxPositionSize">Max Position Size</label>
-                    <div class="input-group">
-                        <input type="number" id="maxPositionSize" min="1000" step="1000" required>
-                        <span class="input-group-addon">INR</span>
-                    </div>
-                    <small>Maximum position size for a single trade. The system will calculate quantity based on this value and available funds, ensuring no more than this amount is allocated per position.</small>
-                </div>
-                
-                <div class="form-group">
-                    <label for="stopLossPercent">Stop Loss Percentage</label>
-                    <div class="input-group">
-                        <input type="number" id="stopLossPercent" min="0.1" max="10" step="0.1" required>
-                        <span class="input-group-addon">%</span>
-                    </div>
-                    <small>Stop loss will be placed at this percentage below the buy price using CNC (delivery) order type</small>
-                </div>
-                
-                <div class="form-group">
-                    <label for="targetPercent">Target Percentage</label>
-                    <div class="input-group">
-                        <input type="number" id="targetPercent" min="0.1" max="20" step="0.1" required>
-                        <span class="input-group-addon">%</span>
-                    </div>
-                    <small>Target percentage is saved but not currently used (only stop loss orders are placed)</small>
+                    <small>Maximum amount to allocate per stock. The system will calculate quantity based on this value and the current stock price.</small>
                 </div>
                 
                 <div class="form-actions">
@@ -675,9 +648,6 @@
                         const tradingSettings = data.settings.trading;
                         document.getElementById('defaultQuantity').value = tradingSettings.default_quantity || 1;
                         document.getElementById('maxTradeValue').value = tradingSettings.max_trade_value || 5000;
-                        document.getElementById('maxPositionSize').value = tradingSettings.max_position_size || 10000;
-                        document.getElementById('stopLossPercent').value = tradingSettings.stop_loss_percent || 2;
-                        document.getElementById('targetPercent').value = tradingSettings.target_percent || 4;
                     } else if (data.status === 'error' && data.message === 'Authentication required') {
                         // Auth error - trigger auth refresh
                         localStorage.removeItem('authStatus');
@@ -758,10 +728,7 @@
             
             const settings = {
                 default_quantity: parseInt(document.getElementById('defaultQuantity').value),
-                max_trade_value: parseInt(document.getElementById('maxTradeValue').value),
-                max_position_size: parseInt(document.getElementById('maxPositionSize').value),
-                stop_loss_percent: parseFloat(document.getElementById('stopLossPercent').value),
-                target_percent: parseFloat(document.getElementById('targetPercent').value)
+                max_trade_value: parseInt(document.getElementById('maxTradeValue').value)
             };
             
             fetch('/api/settings/trading', {
@@ -848,9 +815,6 @@
         function resetTradingSettings() {
             document.getElementById('defaultQuantity').value = '1';
             document.getElementById('maxTradeValue').value = '5000';
-            document.getElementById('maxPositionSize').value = '10000';
-            document.getElementById('stopLossPercent').value = '2';
-            document.getElementById('targetPercent').value = '4';
             
             showTradingSettingsMessage('success', 'Trading settings reset to defaults');
         }

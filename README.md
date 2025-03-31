@@ -175,10 +175,7 @@ Key configuration parameters are loaded from environment variables:
 KITE_API_KEY          # Zerodha API key
 KITE_API_SECRET       # Zerodha API secret
 DEFAULT_QUANTITY      # Default order quantity
-MAX_TRADE_VALUE       # Maximum value per trade
-STOP_LOSS_PERCENT     # Default stop-loss percentage
-TARGET_PERCENT        # Default target percentage
-MAX_POSITION_SIZE     # Maximum position size
+MAX_TRADE_VALUE       # Maximum value per tra
 API_RATE_LIMIT        # API calls per second (default: 3)
 PORT                  # Server port (default: 5000)
 BYPASS_MARKET_HOURS   # Testing flag to bypass market hours check
@@ -210,9 +207,9 @@ Market operation parameters:
 3. Stock symbols and trigger prices are extracted
 4. Trading intent (buy/sell) is determined from scan name or explicit action field
 5. Available margin is checked for trade viability
-6. Position size is calculated based on available funds and configured limits
-7. Market order is placed with delivery (CNC) order type
-8. Stop-loss order is placed at configured percentage from entry
+6. Position size is calculated based on Maximum Trade Value (per stock limit)
+7. Stocks with prices higher than Maximum Trade Value are skipped
+8. Market order is placed with delivery (CNC) order type
 9. Trade details are logged and notifications sent
 10. Dashboard is updated with new positions and orders
 
@@ -230,6 +227,7 @@ Market operation parameters:
 3. ✅ **Circular Dependency Resolution**: Implemented lazy imports to avoid circular import errors
 4. ✅ **Token Expiration Handling**: Added centralized token management with accurate 6 AM IST expiration detection, clear user notifications, and token status dashboard
 5. ✅ **Railway Environment Optimization**: Implemented memory optimization with adaptive resource usage, garbage collection, and module unloading to reduce costs on Railway
+6. ✅ **Simplified Trading Logic**: Streamlined position sizing to use only Maximum Trade Value per stock, with no automatic stop losses
 
 ## For AI Developers
 
