@@ -191,8 +191,10 @@ def wait_for_market_open():
                         logger.info(f"Sent waiting notification via Telegram: Waiting {hours_to_wait} hours for market to open")
                         
                         # Clean up imported modules to save memory
-                        del sys.modules.get('telegram_notifier', None)
-                        del sys.modules.get('nse_holidays', None)
+                        if 'telegram_notifier' in sys.modules:
+                            del sys.modules['telegram_notifier']
+                        if 'nse_holidays' in sys.modules:
+                            del sys.modules['nse_holidays']
                         gc.collect()
                     except Exception as e:
                         logger.error(f"Failed to send waiting notification: {e}")
@@ -324,13 +326,15 @@ def main():
                     logger.info(f"Sent market holiday notification via Telegram: Market closed for {holiday_desc}")
                     
                     # Clean up imported modules
-                    del sys.modules['telegram_notifier']
+                    if 'telegram_notifier' in sys.modules:
+                        del sys.modules['telegram_notifier']
                     gc.collect()
                 except Exception as e:
                     logger.error(f"Failed to send market holiday notification: {e}")
             
             # Clean up imported modules
-            del sys.modules.get('nse_holidays', None)
+            if 'nse_holidays' in sys.modules:
+                del sys.modules['nse_holidays']
             gc.collect()
         except Exception as e:
             logger.error(f"Error checking for market holiday: {e}")
