@@ -518,25 +518,41 @@
                 try {
                     const cache = JSON.parse(authCache);
                     
+                    // Always check if we're authenticated first
+                    if (!cache.data || !cache.data.authenticated) {
+                        localStorage.removeItem('authStatus');
+                        return null;
+                    }
+                    
                     // Check if cache has expired based on server-provided expiry time
                     if (cache.data && cache.data.expires_at) {
                         const cacheExpiry = new Date(cache.data.expires_at);
                         const now = new Date();
                         if (now < cacheExpiry) {
-                            return cache.data;
+                            // Valid server expiry - but add additional safety by limiting cache lifetime
+                            const cacheTime = new Date(cache.timestamp);
+                            // Cache should not be used for more than 30 minutes regardless
+                            if ((now.getTime() - cacheTime.getTime()) < 30 * 60 * 1000) {
+                                return cache.data;
+                            }
                         }
+                        // If expired, clear cache
+                        localStorage.removeItem('authStatus');
                     } 
                     // Fallback to client-side expiry if server didn't provide one
                     else if (cache.timestamp) {
                         const cacheTime = new Date(cache.timestamp);
                         const now = new Date();
-                        // If cache is less than 5 minutes old, use it
-                        if ((now.getTime() - cacheTime.getTime()) < 5 * 60 * 1000) {
+                        // More conservative - only use cache for 2 minutes to ensure fresh checks
+                        if ((now.getTime() - cacheTime.getTime()) < 2 * 60 * 1000) {
                             return cache.data;
                         }
+                        // Clear expired cache
+                        localStorage.removeItem('authStatus');
                     }
                 } catch (e) {
                     console.error('Error parsing auth cache:', e);
+                    localStorage.removeItem('authStatus');
                 }
             }
             return null;
@@ -548,31 +564,68 @@
             const cachedStatus = getAuthStatusFromCache();
             if (cachedStatus) {
                 renderAuthStatus(cachedStatus);
+                // Still fetch fresh data in background for future use
+                refreshAuthStatus(false);
                 return;
             }
             
+            refreshAuthStatus(true);
+        }
+        
+        // Function to refresh auth status from server
+        function refreshAuthStatus(updateUI = true) {
             fetch('/auth/status')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Auth check failed, status: ' + response.status);
+                    }
+                    return response.json();
+                })
                 .then(data => {
-                    renderAuthStatus(data);
-                    
                     // Cache the result
                     localStorage.setItem('authStatus', JSON.stringify({
                         data: data,
                         timestamp: new Date().toISOString()
                     }));
+                    
+                    // Update UI if requested
+                    if (updateUI) {
+                        renderAuthStatus(data);
+                    }
+                    
+                    // If not authenticated, force settings reload
+                    if (!data.authenticated) {
+                        // Clear any cached data for this page
+                        localStorage.removeItem('tradingSettings');
+                        localStorage.removeItem('telegramSettings');
+                        
+                        // Redirect to refresh page if needed
+                        if (updateUI) {
+                            setTimeout(() => window.location.href = '/auth/refresh', 1000);
+                        }
+                    } else {
+                        // Load settings if authenticated
+                        loadTradingSettings();
+                        loadTelegramSettings();
+                    }
                 })
                 .catch(error => {
                     console.error('Error fetching auth status:', error);
-                    document.getElementById('auth-status').innerHTML = `
-                        <div class="auth-status auth-error">
-                            <i class="ri-error-warning-line"></i>
-                            <div>
-                                <div><strong>Error checking authentication status</strong></div>
-                                <div>Please try <a href="/auth/refresh">refreshing your authentication</a>.</div>
+                    
+                    if (updateUI) {
+                        document.getElementById('auth-status').innerHTML = `
+                            <div class="auth-status auth-error">
+                                <i class="ri-error-warning-line"></i>
+                                <div>
+                                    <div><strong>Error checking authentication status</strong></div>
+                                    <div>Please try <a href="/auth/refresh">refreshing your authentication</a>.</div>
+                                </div>
                             </div>
-                        </div>
-                    `;
+                        `;
+                    }
+                    
+                    // Clear any cached data
+                    localStorage.removeItem('authStatus');
                 });
         }
         
@@ -605,7 +658,18 @@
         // Function to load trading settings
         function loadTradingSettings() {
             fetch('/api/settings')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        // If unauthorized (401) or forbidden (403), refresh auth status
+                        if (response.status === 401 || response.status === 403) {
+                            localStorage.removeItem('authStatus');
+                            refreshAuthStatus(true);
+                            throw new Error('Authentication required');
+                        }
+                        throw new Error('Failed to load settings, status: ' + response.status);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.status === 'success') {
                         const tradingSettings = data.settings.trading;
@@ -614,6 +678,10 @@
                         document.getElementById('maxPositionSize').value = tradingSettings.max_position_size || 10000;
                         document.getElementById('stopLossPercent').value = tradingSettings.stop_loss_percent || 2;
                         document.getElementById('targetPercent').value = tradingSettings.target_percent || 4;
+                    } else if (data.status === 'error' && data.message === 'Authentication required') {
+                        // Auth error - trigger auth refresh
+                        localStorage.removeItem('authStatus');
+                        refreshAuthStatus(true);
                     } else {
                         showTradingSettingsMessage('error', 'Failed to load settings: ' + (data.message || 'Unknown error'));
                     }
@@ -627,7 +695,18 @@
         // Function to load telegram settings
         function loadTelegramSettings() {
             fetch('/api/settings')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        // If unauthorized (401) or forbidden (403), refresh auth status
+                        if (response.status === 401 || response.status === 403) {
+                            localStorage.removeItem('authStatus');
+                            refreshAuthStatus(true);
+                            throw new Error('Authentication required');
+                        }
+                        throw new Error('Failed to load settings, status: ' + response.status);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.status === 'success') {
                         const telegramSettings = data.settings.telegram;
@@ -797,10 +876,6 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Update auth status
             updateAuthStatus();
-            
-            // Load settings
-            loadTradingSettings();
-            loadTelegramSettings();
             
             // Add event listeners
             document.getElementById('trading-settings-form').addEventListener('submit', saveTradingSettings);

@@ -700,93 +700,220 @@
                 try {
                     const cache = JSON.parse(authCache);
                     
+                    // Always check if we're authenticated first
+                    if (!cache.data || !cache.data.authenticated) {
+                        localStorage.removeItem('authStatus');
+                        return null;
+                    }
+                    
                     // Check if cache has expired based on server-provided expiry time
                     if (cache.data && cache.data.expires_at) {
                         const cacheExpiry = new Date(cache.data.expires_at);
                         const now = new Date();
                         if (now < cacheExpiry) {
-                            return cache.data;
+                            // Valid server expiry - but add additional safety by limiting cache lifetime
+                            const cacheTime = new Date(cache.timestamp);
+                            // Cache should not be used for more than 30 minutes regardless
+                            if ((now.getTime() - cacheTime.getTime()) < 30 * 60 * 1000) {
+                                return cache.data;
+                            }
                         }
+                        // If expired, clear cache
+                        localStorage.removeItem('authStatus');
                     } 
                     // Fallback to client-side expiry if server didn't provide one
                     else if (cache.timestamp) {
                         const cacheTime = new Date(cache.timestamp);
                         const now = new Date();
-                        // If cache is less than 5 minutes old, use it
-                        if ((now.getTime() - cacheTime.getTime()) < 5 * 60 * 1000) {
+                        // More conservative - only use cache for 2 minutes to ensure fresh checks
+                        if ((now.getTime() - cacheTime.getTime()) < 2 * 60 * 1000) {
                             return cache.data;
                         }
+                        // Clear expired cache
+                        localStorage.removeItem('authStatus');
                     }
                 } catch (e) {
                     console.error('Error parsing auth cache:', e);
+                    localStorage.removeItem('authStatus');
                 }
             }
             return null;
         }
-
-        // Check authentication status
-        function checkAuthStatus() {
+        
+        // Function to display authentication status
+        function updateAuthStatus() {
             // Try to get from cache first
             const cachedStatus = getAuthStatusFromCache();
             if (cachedStatus) {
                 renderAuthStatus(cachedStatus);
+                // Still fetch fresh data in background for future use
+                refreshAuthStatus(false);
                 return;
             }
             
+            refreshAuthStatus(true);
+        }
+        
+        // Function to refresh auth status from server
+        function refreshAuthStatus(updateUI = true) {
             fetch('/auth/status')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Auth check failed, status: ' + response.status);
+                    }
+                    return response.json();
+                })
                 .then(data => {
-                    renderAuthStatus(data);
-                    
                     // Cache the result
                     localStorage.setItem('authStatus', JSON.stringify({
                         data: data,
                         timestamp: new Date().toISOString()
                     }));
+                    
+                    // Update UI if requested
+                    if (updateUI) {
+                        renderAuthStatus(data);
+                    }
+                    
+                    // If not authenticated, force reload
+                    if (!data.authenticated) {
+                        // Clear any cached data for this page
+                        localStorage.removeItem('dashboardData');
+                        
+                        // Redirect to refresh page if needed
+                        if (updateUI) {
+                            setTimeout(() => window.location.href = '/auth/refresh', 1000);
+                        }
+                    } else {
+                        // Load data if authenticated
+                        loadAllData();
+                    }
                 })
                 .catch(error => {
-                    console.error('Error checking auth status:', error);
+                    console.error('Error fetching auth status:', error);
                     
-                    const statusElement = document.getElementById('auth-status');
-                    statusElement.innerHTML = `
-                        <div class="auth-status auth-error">
-                            <i class="ri-error-warning-line"></i>
-                            <div>
-                                <div><strong>Error checking status</strong></div>
-                                <div>Please try again or <a href="/auth/refresh">login</a></div>
+                    if (updateUI) {
+                        document.getElementById('auth-status').innerHTML = `
+                            <div class="auth-status auth-error">
+                                <i class="ri-error-warning-line"></i>
+                                <div>
+                                    <div><strong>Error checking authentication status</strong></div>
+                                    <div>Please try <a href="/auth/refresh">refreshing your authentication</a>.</div>
+                                </div>
                             </div>
-                        </div>
-                    `;
+                        `;
+                    }
+                    
+                    // Clear any cached data
+                    localStorage.removeItem('authStatus');
                 });
         }
         
-        // Function to render auth status
+        // Function to render auth status 
         function renderAuthStatus(data) {
-            const statusElement = document.getElementById('auth-status');
-            
+            const authStatusDiv = document.getElementById('auth-status');
             if (data.authenticated) {
-                statusElement.innerHTML = `
+                authStatusDiv.innerHTML = `
                     <div class="auth-status auth-success">
                         <i class="ri-check-double-line"></i>
                         <div>
-                            <div><strong>Currently logged in as: ${data.user || data.user_name || 'undefined'}</strong></div>
-                            <div>Authentication valid until: ${data.expires_at ? formatDateTime(data.expires_at) : (data.expiry || 'undefined')}</div>
+                            <div><strong>Currently logged in as: ${data.user || 'undefined'}</strong></div>
+                            <div>Authentication valid until: ${data.expires_at ? formatDateTime(data.expires_at) : 'undefined'}</div>
                         </div>
                     </div>
                 `;
+                
+                // Only load data if authenticated
+                loadAllData();
             } else {
-                statusElement.innerHTML = `
+                authStatusDiv.innerHTML = `
                     <div class="auth-status auth-error">
                         <i class="ri-error-warning-line"></i>
                         <div>
-                            <div><strong>Not authenticated</strong></div>
-                            <div>Please <a href="/auth/refresh">login</a> to continue</div>
+                            <div><strong>Not authenticated with Zerodha</strong></div>
+                            <div>Please <a href="/auth/refresh">login to Zerodha</a> to continue.</div>
                         </div>
                     </div>
                 `;
+                
+                // Hide data sections
+                showNotAuthenticatedUI();
             }
         }
-
+        
+        function showNotAuthenticatedUI() {
+            // Hide all data sections or show auth error
+            document.querySelectorAll('.section, .card').forEach(el => {
+                if (!el.classList.contains('auth-section')) {
+                    el.style.display = 'none';
+                }
+            });
+            
+            // Add a prominent login button
+            const container = document.querySelector('.container');
+            const authUi = document.createElement('div');
+            authUi.className = 'auth-prompt';
+            authUi.innerHTML = `
+                <div class="empty-state">
+                    <i class="ri-lock-line"></i>
+                    <p>Login required to view your trading dashboard</p>
+                    <a href="/auth/refresh" class="btn btn-primary">Login to Zerodha</a>
+                </div>
+            `;
+            
+            // Check if we already added this
+            if (!document.querySelector('.auth-prompt')) {
+                container.appendChild(authUi);
+            }
+        }
+        
+        // Function to load all dashboard data
+        function loadAllData() {
+            // Show all data sections
+            document.querySelectorAll('.section, .card').forEach(el => {
+                el.style.display = 'block';
+            });
+            
+            // Remove auth prompt if exists
+            const authPrompt = document.querySelector('.auth-prompt');
+            if (authPrompt) {
+                authPrompt.remove();
+            }
+            
+            // Load all data
+            loadMargins();
+            loadPositions();
+            loadOrders();
+            loadAlerts();
+            loadPnL();
+        }
+        
+        // Function to load margins data
+        function loadMargins() {
+            fetch('/api/margins')
+                .then(response => {
+                    if (!response.ok) {
+                        if (response.status === 401 || response.status === 403) {
+                            localStorage.removeItem('authStatus');
+                            refreshAuthStatus(true);
+                            throw new Error('Authentication required');
+                        }
+                        throw new Error('Failed to load margins, status: ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.status === 'success' && data.data) {
+                        const equity = data.data.equity || {};
+                        document.getElementById('available-margin').textContent = '₹' + (equity.available?.cash || 0).toFixed(2);
+                        document.getElementById('used-margin').textContent = '₹' + (equity.utilised?.debits || 0).toFixed(2);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching margins:', error);
+                });
+        }
+        
         // Fetch current positions
         function fetchPositions() {
             const positionsContainer = document.getElementById('positions-container');
@@ -881,22 +1008,6 @@
                 });
         }
 
-        // Fetch margin information
-        function fetchMargins() {
-            fetch('/api/margins')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success' && data.data) {
-                        const equity = data.data.equity || {};
-                        document.getElementById('available-margin').textContent = '₹' + (equity.available?.cash || 0).toFixed(2);
-                        document.getElementById('used-margin').textContent = '₹' + (equity.utilised?.debits || 0).toFixed(2);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching margins:', error);
-                });
-        }
-        
         // Fetch order history
         function fetchOrders() {
             const ordersContainer = document.getElementById('orders-container');
@@ -1084,34 +1195,6 @@
                     `;
                 });
         }
-
-        // Load initial data
-        function loadData() {
-            checkAuthStatus();
-            fetchPositions();
-            fetchOrders();
-            fetchMargins();
-            fetchAlerts();
-        }
-        
-        // Initialize on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            loadData();
-            
-            // Refresh button functionality
-            document.getElementById('refresh-positions').addEventListener('click', function() {
-                fetchPositions();
-                fetchMargins();
-            });
-            
-            document.getElementById('refresh-orders').addEventListener('click', function() {
-                fetchOrders();
-            });
-            
-            document.getElementById('refresh-alerts').addEventListener('click', function() {
-                fetchAlerts();
-            });
-        });
 
         // Load P&L data
         function loadPnL() {
@@ -1311,12 +1394,22 @@
             });
         }
         
-        // Add event listener for refresh button
+        // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
-            loadPnL();
+            updateAuthStatus();
             
-            document.getElementById('refresh-pnl').addEventListener('click', function() {
-                loadPnL();
+            // Refresh button functionality
+            document.getElementById('refresh-positions').addEventListener('click', function() {
+                fetchPositions();
+                fetchMargins();
+            });
+            
+            document.getElementById('refresh-orders').addEventListener('click', function() {
+                fetchOrders();
+            });
+            
+            document.getElementById('refresh-alerts').addEventListener('click', function() {
+                fetchAlerts();
             });
         });
     </script>

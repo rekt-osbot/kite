@@ -11,6 +11,7 @@ from scheduler import start_scheduler, is_market_open, calculate_next_market_ope
 from nse_holidays import is_market_holiday, get_next_trading_day
 from token_manager import token_manager
 import memory_optimizer  # Import memory optimizer
+from functools import wraps
 
 # Configure logging to output to console
 logging.basicConfig(
@@ -265,6 +266,48 @@ else:
     # Store received alerts in memory (cleared on restart)
     received_alerts = []
 
+    # Authentication middleware
+    def require_auth(f):
+        """Decorator to require authentication for API endpoints"""
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            try:
+                # Get token from storage
+                token_data = storage.get_token()
+                
+                # Check if token exists
+                if not token_data or not token_data.get('access_token'):
+                    return jsonify({"status": "error", "message": "Authentication required"}), 401
+                
+                # Validate token expiry if available
+                if 'expires_at' in token_data:
+                    expires_at = token_data.get('expires_at')
+                    try:
+                        # Parse timestamp
+                        if isinstance(expires_at, str):
+                            from datetime import datetime
+                            expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                        
+                        # Check if token has expired
+                        now = datetime.now(expires_at.tzinfo if hasattr(expires_at, 'tzinfo') else None)
+                        if expires_at < now:
+                            return jsonify({"status": "error", "message": "Token expired"}), 401
+                    except Exception as e:
+                        logger.error(f"Error validating token expiry: {e}")
+                
+                # Synchronize with token_manager
+                if token_manager.access_token != token_data.get('access_token'):
+                    token_manager.access_token = token_data.get('access_token')
+                    token_manager.username = token_data.get('username', 'Unknown')
+                    token_manager.is_authenticated = True
+                
+                # All checks passed, token is valid
+                return f(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"Authentication error: {e}")
+                return jsonify({"status": "error", "message": "Authentication failed"}), 401
+        return decorated_function
+
     # Authentication routes
     @app.route('/')
     def index():
@@ -309,16 +352,29 @@ else:
                 user_id = profile.get('user_id')
                 username = profile.get('user_name')
                 
+                # Calculate token expiry time (6 AM IST the next day)
+                from datetime import datetime, timedelta
+                import pytz
+                IST = pytz.timezone('Asia/Kolkata')
+                now = datetime.now(IST)
+                expires_at = now.replace(hour=6, minute=0, second=0, microsecond=0)
+                if now.hour >= 6:
+                    expires_at = expires_at + timedelta(days=1)
+                expires_in_hours = (expires_at - now).total_seconds() / 3600
+                
                 # Store token in file storage
                 token_data = storage.save_token(
                     user_id,
                     username, 
                     session_data.get("access_token"),
-                    expires_in_hours=24
+                    expires_in_hours=expires_in_hours
                 )
                 
                 # Set the token in KiteConnect instance
                 kite.set_access_token(token_data['access_token'])
+                
+                # Synchronize with token_manager
+                token_manager.save_token(user_id, username, token_data['access_token'])
             except Exception as e:
                 logger.error(f"Error saving user data: {e}")
             
@@ -328,7 +384,8 @@ else:
             except Exception as e:
                 logger.error(f"Error sending Telegram notification: {e}")
             
-            return redirect('/auth/refresh')
+            # Add a query param to force refresh
+            return redirect('/auth/refresh?login_success=true&t=' + str(int(time.time())))
         except Exception as e:
             logger.error(f"Authentication error: {e}")
             return jsonify({"status": "error", "message": str(e)}), 500
@@ -340,7 +397,14 @@ else:
             # Get token from storage
             token_data = storage.get_token()
             
-            if token_data:
+            # Synchronize with token_manager for consistency
+            if token_data and token_data.get('access_token'):
+                # Set token in token_manager if not already set
+                if token_manager.access_token != token_data.get('access_token'):
+                    user_id = token_data.get('user_id', 'unknown')
+                    username = token_data.get('username', 'Unknown')
+                    token_manager.save_token(user_id, username, token_data.get('access_token'))
+                
                 # Valid token found
                 username = token_data.get('username', 'Unknown')
                 created_at = token_data.get('created_at', '')
@@ -647,12 +711,10 @@ else:
             return jsonify({"status": "error", "message": str(e)}), 500
 
     # API endpoints
-    @app.route('/api/positions')
+    @app.route('/api/positions', methods=['GET'])
+    @require_auth
     def get_positions():
         """Get current positions"""
-        if not authenticate_kite():
-            return jsonify({"status": "error", "message": "Not authenticated"})
-        
         try:
             positions = kite.get_positions()
             return jsonify({"status": "success", "data": positions})
@@ -660,12 +722,10 @@ else:
             logger.error(f"Error fetching positions: {e}")
             return jsonify({"status": "error", "message": str(e)})
 
-    @app.route('/api/orders')
+    @app.route('/api/orders', methods=['GET'])
+    @require_auth
     def get_orders():
         """Get today's orders"""
-        if not authenticate_kite():
-            return jsonify({"status": "error", "message": "Not authenticated"})
-        
         try:
             orders = kite.get_orders()
             return jsonify({"status": "success", "data": orders})
@@ -673,12 +733,10 @@ else:
             logger.error(f"Error fetching orders: {e}")
             return jsonify({"status": "error", "message": str(e)})
 
-    @app.route('/api/margins')
+    @app.route('/api/margins', methods=['GET'])
+    @require_auth
     def get_margins():
         """Get available margins"""
-        if not authenticate_kite():
-            return jsonify({"status": "error", "message": "Not authenticated"})
-        
         try:
             margins = kite.get_margins()
             return jsonify({"status": "success", "data": margins})
@@ -687,6 +745,7 @@ else:
             return jsonify({"status": "error", "message": str(e)})
 
     @app.route('/api/alerts', methods=['GET'])
+    @require_auth
     def get_alerts():
         """Get received alerts"""
         try:
@@ -702,30 +761,29 @@ else:
             logger.error(f"Error getting alerts: {e}")
             return jsonify({"status": "error", "message": str(e)}), 500
 
-    @app.route('/api/settings')
+    @app.route('/api/settings', methods=['GET'])
+    @require_auth
     def get_settings():
         """Get settings"""
         try:
-            # Get token from storage to validate authentication
+            # Get all settings
+            settings = storage.get_all_settings()
+            
+            # Get token data for username
             token_data = storage.get_token()
+            username = token_data.get('username', 'Unknown') if token_data else 'Unknown'
             
-            if token_data:
-                # Get all settings
-                settings = storage.get_all_settings()
-                
-                return jsonify({
-                    "status": "success", 
-                    "settings": settings,
-                    "user": token_data.get('username', 'Unknown')
-                })
-            
-            # No valid token found
-            return jsonify({"status": "error", "message": "Authentication required"})
+            return jsonify({
+                "status": "success", 
+                "settings": settings,
+                "user": username
+            })
         except Exception as e:
             logger.error(f"Settings retrieval failed: {e}")
             return jsonify({"status": "error", "message": str(e)})
 
     @app.route('/api/settings/trading', methods=['POST'])
+    @require_auth
     def update_trading_settings():
         """Update trading settings"""
         try:
@@ -778,6 +836,7 @@ else:
             return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.route('/api/settings/telegram', methods=['POST'])
+    @require_auth
     def update_telegram_settings():
         """Update Telegram notification settings"""
         try:
@@ -812,6 +871,7 @@ else:
             return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.route('/api/telegram/test', methods=['POST'])
+    @require_auth
     def test_telegram():
         """Test Telegram notification by sending a test message"""
         try:
@@ -1030,6 +1090,7 @@ else:
         logger.info(f"Daily summary sent with {len(trades)} trades and P&L: ₹{pnl_data['total_pnl']:.2f}")
 
     @app.route('/api/trades/pnl', methods=['GET'])
+    @require_auth
     def get_trades_pnl():
         """Get notional P&L for today's trades"""
         try:
@@ -1052,6 +1113,7 @@ else:
             return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.route('/api/telegram/day-summary', methods=['GET'])
+    @require_auth
     def trigger_day_summary():
         """Manually trigger a day summary notification"""
         try:

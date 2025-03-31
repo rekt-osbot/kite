@@ -399,7 +399,7 @@
     </div>
 
     <script>
-        // Format date and time nicely
+        // Format date and time
         function formatDateTime(dateTimeStr) {
             if (!dateTimeStr) return 'undefined';
             const dt = new Date(dateTimeStr);
@@ -420,25 +420,41 @@
                 try {
                     const cache = JSON.parse(authCache);
                     
+                    // Always check if we're authenticated first
+                    if (!cache.data || !cache.data.authenticated) {
+                        localStorage.removeItem('authStatus');
+                        return null;
+                    }
+                    
                     // Check if cache has expired based on server-provided expiry time
                     if (cache.data && cache.data.expires_at) {
                         const cacheExpiry = new Date(cache.data.expires_at);
                         const now = new Date();
                         if (now < cacheExpiry) {
-                            return cache.data;
+                            // Valid server expiry - but add additional safety by limiting cache lifetime
+                            const cacheTime = new Date(cache.timestamp);
+                            // Cache should not be used for more than 30 minutes regardless
+                            if ((now.getTime() - cacheTime.getTime()) < 30 * 60 * 1000) {
+                                return cache.data;
+                            }
                         }
+                        // If expired, clear cache
+                        localStorage.removeItem('authStatus');
                     } 
                     // Fallback to client-side expiry if server didn't provide one
                     else if (cache.timestamp) {
                         const cacheTime = new Date(cache.timestamp);
                         const now = new Date();
-                        // If cache is less than 5 minutes old, use it
-                        if ((now.getTime() - cacheTime.getTime()) < 5 * 60 * 1000) {
+                        // More conservative - only use cache for 2 minutes to ensure fresh checks
+                        if ((now.getTime() - cacheTime.getTime()) < 2 * 60 * 1000) {
                             return cache.data;
                         }
+                        // Clear expired cache
+                        localStorage.removeItem('authStatus');
                     }
                 } catch (e) {
                     console.error('Error parsing auth cache:', e);
+                    localStorage.removeItem('authStatus');
                 }
             }
             return null;
@@ -450,36 +466,70 @@
             const cachedStatus = getAuthStatusFromCache();
             if (cachedStatus) {
                 renderAuthStatus(cachedStatus);
+                // Still fetch fresh data in background for future use
+                refreshAuthStatus(false);
                 return;
             }
             
-            // If not in cache, fetch from server
+            refreshAuthStatus(true);
+        }
+        
+        // Function to refresh auth status from server
+        function refreshAuthStatus(updateUI = true) {
             fetch('/auth/status')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Auth check failed, status: ' + response.status);
+                    }
+                    return response.json();
+                })
                 .then(data => {
-                    renderAuthStatus(data);
-                    
                     // Cache the result
                     localStorage.setItem('authStatus', JSON.stringify({
                         data: data,
                         timestamp: new Date().toISOString()
                     }));
+                    
+                    // Update UI if requested
+                    if (updateUI) {
+                        renderAuthStatus(data);
+                    }
+                    
+                    // If not authenticated, force alerts reload
+                    if (!data.authenticated) {
+                        // Clear any cached data for this page
+                        localStorage.removeItem('alertsData');
+                        
+                        // Redirect to refresh page if needed
+                        if (updateUI) {
+                            setTimeout(() => window.location.href = '/auth/refresh', 1000);
+                        }
+                    } else {
+                        // Load alerts if authenticated
+                        loadAlerts();
+                    }
                 })
                 .catch(error => {
                     console.error('Error fetching auth status:', error);
-                    document.getElementById('auth-status').innerHTML = `
-                        <div class="auth-status auth-error">
-                            <i class="ri-error-warning-line"></i>
-                            <div>
-                                <div><strong>Error checking authentication status</strong></div>
-                                <div>Please try <a href="/auth/refresh">refreshing your authentication</a>.</div>
+                    
+                    if (updateUI) {
+                        document.getElementById('auth-status').innerHTML = `
+                            <div class="auth-status auth-error">
+                                <i class="ri-error-warning-line"></i>
+                                <div>
+                                    <div><strong>Error checking authentication status</strong></div>
+                                    <div>Please try <a href="/auth/refresh">refreshing your authentication</a>.</div>
+                                </div>
                             </div>
-                        </div>
-                    `;
+                        `;
+                    }
+                    
+                    // Clear any cached data
+                    localStorage.removeItem('authStatus');
                 });
         }
         
-        // Function to render auth status
+        // Function to render auth status 
         function renderAuthStatus(data) {
             const authStatusDiv = document.getElementById('auth-status');
             if (data.authenticated) {
@@ -487,11 +537,14 @@
                     <div class="auth-status auth-success">
                         <i class="ri-check-double-line"></i>
                         <div>
-                            <div><strong>Currently logged in as: ${data.user || data.user_name || 'undefined'}</strong></div>
-                            <div>Authentication valid until: ${data.expires_at ? formatDateTime(data.expires_at) : (data.expiry || 'undefined')}</div>
+                            <div><strong>Currently logged in as: ${data.user || 'undefined'}</strong></div>
+                            <div>Authentication valid until: ${data.expires_at ? formatDateTime(data.expires_at) : 'undefined'}</div>
                         </div>
                     </div>
                 `;
+                
+                // Only load alerts if authenticated
+                loadAlerts();
             } else {
                 authStatusDiv.innerHTML = `
                     <div class="auth-status auth-error">
@@ -502,124 +555,159 @@
                         </div>
                     </div>
                 `;
+                
+                // Show not authenticated UI
+                showNotAuthenticatedUI();
             }
         }
         
-        // Function to fetch and display alerts
-        function fetchAlerts() {
-            const alertsContainer = document.getElementById('alerts-container');
-            alertsContainer.innerHTML = `
+        function showNotAuthenticatedUI() {
+            // Hide all data sections or show auth error
+            document.querySelectorAll('.section').forEach(el => {
+                if (!el.classList.contains('auth-section')) {
+                    el.style.display = 'none';
+                }
+            });
+            
+            // Add a prominent login button
+            const container = document.querySelector('.container');
+            const authUi = document.createElement('div');
+            authUi.className = 'auth-prompt';
+            authUi.innerHTML = `
                 <div class="empty-state">
-                    <i class="ri-loader-4-line"></i>
-                    <p>Loading alerts...</p>
+                    <i class="ri-lock-line"></i>
+                    <p>Login required to view your alerts</p>
+                    <a href="/auth/refresh" class="btn btn-primary">Login to Zerodha</a>
                 </div>
             `;
             
+            // Check if we already added this
+            if (!document.querySelector('.auth-prompt')) {
+                container.appendChild(authUi);
+            }
+        }
+        
+        // Function to load alerts
+        function loadAlerts() {
+            // Show all data sections
+            document.querySelectorAll('.section').forEach(el => {
+                el.style.display = 'block';
+            });
+            
+            // Remove auth prompt if exists
+            const authPrompt = document.querySelector('.auth-prompt');
+            if (authPrompt) {
+                authPrompt.remove();
+            }
+            
+            const alertsContainer = document.getElementById('alerts-container');
+            alertsContainer.innerHTML = '<div class="loader">Loading alerts...</div>';
+            
             fetch('/api/alerts')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        if (response.status === 401 || response.status === 403) {
+                            localStorage.removeItem('authStatus');
+                            refreshAuthStatus(true);
+                            throw new Error('Authentication required');
+                        }
+                        throw new Error('Failed to load alerts, status: ' + response.status);
+                    }
+                    return response.json();
+                })
                 .then(data => {
-                    if (data.status === 'success' && data.data && data.data.length > 0) {
-                        alertsContainer.innerHTML = '';
-                        
-                        data.data.forEach(alert => {
-                            // Determine if this is a buy or sell alert based on action or scan name
-                            const isBuyAlert = alert.action === 'BUY' || 
-                                    (alert.scan_name && alert.scan_name.toLowerCase().includes('buy')) || 
-                                    (alert.scan_name && alert.scan_name.toLowerCase().includes('bullish')) || 
-                                    (alert.scan_name && alert.scan_name.toLowerCase().includes('breakout'));
-                            
-                            const alertType = isBuyAlert ? 'buy' : 'sell';
-                            const alertIcon = isBuyAlert ? 'ri-arrow-up-circle-line' : 'ri-arrow-down-circle-line';
-                            
-                            const alertCard = document.createElement('div');
-                            alertCard.className = `alert-card ${alertType}`;
-                            
-                            // Handle stocks array or string
-                            let stocksArray = alert.stocks;
-                            let pricesArray = alert.prices;
-                            
-                            if (typeof stocksArray === 'string') {
-                                stocksArray = stocksArray.split(',').map(s => s.trim());
-                            }
-                            
-                            if (typeof pricesArray === 'string') {
-                                pricesArray = pricesArray.split(',').map(p => p.trim());
-                            }
-                            
-                            const stocksWithPrices = stocksArray.map((stock, index) => {
-                                return {
-                                    symbol: stock,
-                                    price: pricesArray[index] || 'N/A'
-                                };
-                            });
-                            
-                            const badgeClass = isBuyAlert ? 'buy-badge' : 'sell-badge';
-                            const badgeIcon = isBuyAlert ? 'ri-arrow-up-line' : 'ri-arrow-down-line';
-                            const badgeText = alert.action || (isBuyAlert ? 'BUY' : 'SELL');
-                            
-                            alertCard.innerHTML = `
-                                <div class="alert-header">
-                                    <div>
-                                        ${alert.scan_name || 'ChartInk Alert'}
-                                        <span class="alert-badge ${badgeClass}">
-                                            <i class="${badgeIcon}"></i> ${badgeText}
-                                        </span>
-                                    </div>
-                                    <div class="alert-time">
-                                        <i class="ri-time-line"></i> ${alert.triggered_at || alert.timestamp || 'N/A'}
-                                    </div>
-                                </div>
-                                
-                                <div class="alert-meta">
-                                    <div class="alert-meta-item">
-                                        <i class="ri-radar-line"></i>
-                                        <span>Scanner: ${alert.scan_name || 'Unknown'}</span>
-                                    </div>
-                                    <div class="alert-meta-item">
-                                        <i class="ri-alarm-line"></i>
-                                        <span>Alert: ${alert.alert_name || 'ChartInk Alert'}</span>
-                                    </div>
-                                </div>
-                                
-                                <div class="stock-list">
-                                    ${stocksWithPrices.map(stock => `
-                                        <div class="stock-item">
-                                            <span class="stock-symbol">${stock.symbol}</span>
-                                            <span class="stock-price">₹${stock.price}</span>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                            `;
-                            
-                            alertsContainer.appendChild(alertCard);
-                        });
+                    if (data.status === 'success') {
+                        renderAlerts(data.data);
                     } else {
                         alertsContainer.innerHTML = `
                             <div class="empty-state">
-                                <i class="ri-notification-off-line"></i>
-                                <p>No alerts received today. ChartInk alerts will appear here when triggered.</p>
+                                <i class="ri-error-warning-line"></i>
+                                <p>Error loading alerts: ${data.message || 'Unknown error'}</p>
                             </div>
                         `;
                     }
                 })
                 .catch(error => {
-                    console.error('Error fetching alerts:', error);
+                    console.error('Error loading alerts:', error);
                     alertsContainer.innerHTML = `
                         <div class="empty-state">
                             <i class="ri-error-warning-line"></i>
-                            <p>Error loading alerts. Please check your authentication.</p>
+                            <p>Error loading alerts. Please try again.</p>
                         </div>
                     `;
                 });
         }
         
-        // Initialize everything when the page loads
+        // Function to render alerts
+        function renderAlerts(alerts) {
+            const alertsContainer = document.getElementById('alerts-container');
+            
+            if (!alerts || alerts.length === 0) {
+                alertsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <i class="ri-notification-line"></i>
+                        <p>No alerts received yet</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Sort alerts by timestamp (newest first)
+            alerts.sort((a, b) => {
+                const timeA = new Date(a.timestamp || a.triggered_at || 0);
+                const timeB = new Date(b.timestamp || b.triggered_at || 0);
+                return timeB - timeA;
+            });
+            
+            let html = '<div class="alerts-list">';
+            
+            alerts.forEach(alert => {
+                const scanName = alert.scan_name || 'Unknown Scanner';
+                const timestamp = formatDateTime(alert.timestamp || alert.triggered_at);
+                const action = alert.action || 'BUY';
+                
+                html += `
+                    <div class="alert-card">
+                        <div class="alert-header">
+                            <div class="alert-scan-name">${scanName}</div>
+                            <div class="alert-time">${timestamp}</div>
+                        </div>
+                        
+                        <div class="alert-stocks">
+                            <div class="alert-action ${action.toLowerCase()}">${action}</div>
+                            <div class="stock-list">
+                `;
+                
+                // Add each stock in the alert
+                const stocks = alert.stocks || [];
+                const prices = alert.prices || [];
+                
+                for (let i = 0; i < stocks.length; i++) {
+                    const stock = stocks[i];
+                    const price = prices[i] || 'N/A';
+                    
+                    html += `
+                        <div class="stock-item">
+                            <div class="stock-symbol">${stock}</div>
+                            <div class="stock-price">₹${price}</div>
+                        </div>
+                    `;
+                }
+                
+                html += `
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            alertsContainer.innerHTML = html;
+        }
+        
+        // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             updateAuthStatus();
-            fetchAlerts();
-            
-            // Set up refresh button handler
-            document.getElementById('refresh-alerts').addEventListener('click', fetchAlerts);
         });
     </script>
 </body>
