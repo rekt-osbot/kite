@@ -3,10 +3,11 @@ python-dotenv==1.0.0
 flask==2.3.3
 gunicorn==21.2.0
 python-telegram-bot==13.15
-psycopg2-binary==2.9.9
-SQLAlchemy==2.0.27
-Flask-SQLAlchemy==3.1.0
-alembic==1.12.1
-nse==1.1.0
 apscheduler==3.6.3
-pytz==2023.3 
+pytz==2023.3
+# Add kiteconnect for Zerodha API interaction
+kiteconnect==4.1.0
+# Add other required dependencies
+pyjwt==2.8.0
+# For handling dates and times
+python-dateutil==2.8.2 

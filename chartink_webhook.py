@@ -124,7 +124,7 @@ def create_market_closed_app():
         closure_reason = "Market is closed"
         if now.weekday() > 4:
             closure_reason = "Market is closed for the weekend"
-        elif is_market_holiday():
+        elif is_market_holiday(now.date()):
             # Get the holiday description
             from nse_holidays import fetch_nse_holidays
             holidays = fetch_nse_holidays()
@@ -155,7 +155,7 @@ if not BYPASS_MARKET_HOURS and not is_market_open():
     
     # Send Telegram notification about market closure if it's due to a holiday
     now = datetime.now(IST)
-    if is_market_holiday():
+    if is_market_holiday(now.date()):
         # Import only what we need to avoid circular imports
         try:
             from telegram_notifier import TelegramNotifier
@@ -195,6 +195,7 @@ else:
     
     # Only import required modules when the market is open
     from kite_connect import KiteConnect
+    from kite_rate_limiter import get_rate_limited_kite  # Import the rate limiter
     from telegram_notifier import TelegramNotifier
     from apscheduler.schedulers.background import BackgroundScheduler
     from file_storage import storage
@@ -202,8 +203,9 @@ else:
     # Initialize Flask app
     app = Flask(__name__)
 
-    # Initialize Kite Connect
-    kite = KiteConnect()
+    # Initialize Kite Connect with rate limiting
+    kite_base = KiteConnect()
+    kite = get_rate_limited_kite(kite_base)  # Apply rate limiting to the Kite instance
 
     # Initialize Telegram notifier
     telegram = TelegramNotifier()

@@ -1,11 +1,46 @@
+# Environment and secrets
 .env
+.env.*
+!.env.example
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-*.log
-*.json
+*.so
+.Python
+env/
 .venv/
+venv/
+ENV/
+
+# Logs
+*.log
+logs/
+
+# Data and sensitive files
+data/
+tokens/
+
+# Only exclude certain JSON files
+# *.json
+# Instead, specifically exclude these
+user_settings.json
+token.json
+
+# IDE files
 .idea/
-.vscode/ 
-npm
-node_modules
+.vscode/
+
+# Node.js files
+node_modules/
+npm-debug.log
+
+# Test files and directories
+test_*/
+*_test.py
+test_*.py
+
+# System files
+.DS_Store
+Thumbs.db

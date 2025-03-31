@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 """
-Module to fetch and verify NSE holidays
+NSE Holidays Module
+
+This module provides functionality to check market holidays for the National Stock Exchange (NSE) of India.
+It maintains a list of holidays for the current year and provides utilities to determine market operating status.
 """
-import os
-import json
 import logging
-import requests
-from datetime import datetime, timedelta
+import datetime
+from datetime import datetime as dt, timedelta
 import pytz
 
 # Configure logging
@@ -16,196 +17,240 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Set IST timezone
-IST = pytz.timezone('Asia/Kolkata')
+# Define NSE market hours
+MARKET_OPEN_TIME = datetime.time(9, 15)  # 9:15 AM
+MARKET_CLOSE_TIME = datetime.time(15, 30)  # 3:30 PM
+MARKET_PRE_OPEN_TIME = datetime.time(9, 0)  # 9:00 AM
 
-# Path to cache file
-HOLIDAYS_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'nse_holidays.json')
+# Define regular weekly off days (0 = Monday, 6 = Sunday)
+WEEKLY_OFFS = [5, 6]  # Saturday and Sunday
+
+# Define 2025 NSE holidays (this should be updated annually)
+# Format: 'YYYY-MM-DD': 'Holiday Name'
+NSE_HOLIDAYS_2025 = {
+    '2025-01-01': 'New Year',
+    '2025-01-26': 'Republic Day',
+    '2025-03-25': 'Holi',
+    '2025-04-14': 'Dr. Ambedkar Jayanti',
+    '2025-04-18': 'Good Friday',
+    '2025-05-01': 'Maharashtra Day',
+    '2025-06-29': 'Bakri Id',
+    '2025-08-15': 'Independence Day',
+    '2025-09-02': 'Ganesh Chaturthi',
+    '2025-10-02': 'Gandhi Jayanti',
+    '2025-10-24': 'Dussehra',
+    '2025-11-12': 'Diwali',
+    '2025-11-25': 'Guru Nanak Jayanti', 
+    '2025-12-25': 'Christmas'
+}
+
+def is_market_holiday(date):
+    """
+    Check if a given date is a market holiday.
+    
+    Args:
+        date (datetime.date): The date to check
+        
+    Returns:
+        bool: True if the date is a holiday, False otherwise
+    """
+    # Convert to date object if datetime was provided
+    if isinstance(date, datetime.datetime):
+        date = date.date()
+    
+    # Check if it's a weekend
+    if date.weekday() in WEEKLY_OFFS:
+        return True
+    
+    # Check if it's in the holiday list
+    date_str = date.strftime('%Y-%m-%d')
+    return date_str in NSE_HOLIDAYS_2025
+
+def get_holiday_name(date):
+    """
+    Get the name of the holiday for a given date.
+    
+    Args:
+        date (datetime.date): The date to check
+        
+    Returns:
+        str: The name of the holiday, or None if it's not a holiday
+    """
+    # Convert to date object if datetime was provided
+    if isinstance(date, datetime.datetime):
+        date = date.date()
+    
+    # Check if it's a weekend
+    if date.weekday() in WEEKLY_OFFS:
+        return "Weekend"
+    
+    # Check if it's in the holiday list
+    date_str = date.strftime('%Y-%m-%d')
+    return NSE_HOLIDAYS_2025.get(date_str)
+
+def get_next_trading_day(date):
+    """
+    Get the next trading day after the given date.
+    
+    Args:
+        date (datetime.date): The starting date
+        
+    Returns:
+        datetime.date: The next trading day
+    """
+    # Convert to date object if datetime was provided
+    if isinstance(date, datetime.datetime):
+        date = date.date()
+    
+    # Start with the next day
+    next_day = date + timedelta(days=1)
+    
+    # Keep incrementing until we find a trading day
+    while is_market_holiday(next_day):
+        next_day += timedelta(days=1)
+    
+    return next_day
+
+def is_market_open(timestamp=None):
+    """
+    Check if the market is currently open based on the current time or given timestamp.
+    
+    Args:
+        timestamp (datetime.datetime, optional): The timestamp to check. If None, the current time is used.
+        
+    Returns:
+        bool: True if the market is open, False otherwise
+    """
+    # Get IST timezone
+    ist = pytz.timezone('Asia/Kolkata')
+    
+    # Use current time if no timestamp is provided
+    if timestamp is None:
+        timestamp = dt.now(ist)
+    elif timestamp.tzinfo is None:
+        # If the timestamp has no timezone, assume it's IST
+        timestamp = ist.localize(timestamp)
+    
+    # Check if it's a holiday
+    if is_market_holiday(timestamp.date()):
+        return False
+    
+    # Check market hours
+    current_time = timestamp.time()
+    return MARKET_OPEN_TIME <= current_time <= MARKET_CLOSE_TIME
+
+def get_market_status():
+    """
+    Get the current market status with detailed information.
+    
+    Returns:
+        dict: A dictionary with market status information
+    """
+    # Get IST timezone
+    ist = pytz.timezone('Asia/Kolkata')
+    now = dt.now(ist)
+    today = now.date()
+    current_time = now.time()
+    
+    # Check if today is a holiday
+    holiday = is_market_holiday(today)
+    holiday_name = get_holiday_name(today) if holiday else None
+    
+    # Determine the next trading day
+    next_trading_day = today if not holiday and current_time < MARKET_CLOSE_TIME else get_next_trading_day(today)
+    
+    # Calculate next market open timestamp
+    if holiday or current_time > MARKET_CLOSE_TIME:
+        # Market is closed for the day, next opening is on the next trading day
+        next_open_timestamp = dt.combine(next_trading_day, MARKET_OPEN_TIME)
+        next_open_timestamp = ist.localize(next_open_timestamp)
+    elif current_time < MARKET_OPEN_TIME:
+        # Market hasn't opened yet today
+        next_open_timestamp = dt.combine(today, MARKET_OPEN_TIME)
+        next_open_timestamp = ist.localize(next_open_timestamp)
+    else:
+        # Market is currently open, so the next open is tomorrow or after weekend/holiday
+        next_open_timestamp = dt.combine(next_trading_day, MARKET_OPEN_TIME)
+        next_open_timestamp = ist.localize(next_open_timestamp)
+    
+    # Determine current status
+    if holiday:
+        status = 'CLOSED_HOLIDAY'
+        status_message = f'Market closed for holiday: {holiday_name}'
+    elif current_time < MARKET_PRE_OPEN_TIME:
+        status = 'CLOSED_PRE_MARKET'
+        status_message = 'Market closed - Pre-market session starts at 9:00 AM'
+    elif current_time < MARKET_OPEN_TIME:
+        status = 'PRE_OPEN'
+        status_message = 'Pre-market session - Regular trading starts at 9:15 AM'
+    elif current_time <= MARKET_CLOSE_TIME:
+        status = 'OPEN'
+        status_message = 'Market open - Regular trading hours'
+    else:
+        status = 'CLOSED_POST_MARKET'
+        status_message = 'Market closed for the day'
+    
+    # Create status dictionary
+    return {
+        'status': status,
+        'message': status_message,
+        'current_time': now,
+        'is_open': MARKET_OPEN_TIME <= current_time <= MARKET_CLOSE_TIME and not holiday,
+        'is_holiday': holiday,
+        'holiday_name': holiday_name,
+        'next_trading_day': next_trading_day,
+        'next_market_open': next_open_timestamp
+    }
 
 def fetch_nse_holidays():
     """
-    Fetch NSE holidays from the NSE website
-    Returns a list of holiday dates for the current year
+    Fetch NSE holidays from our predefined list.
+    This function maintains compatibility with existing code that expects this function.
+    
+    Returns:
+        list: A list of dictionaries containing holiday dates and descriptions
     """
-    current_year = datetime.now(IST).year
     holidays = []
+    current_year = dt.now().year
     
-    try:
-        # Try to load from cache first
-        if os.path.exists(HOLIDAYS_CACHE_FILE):
-            with open(HOLIDAYS_CACHE_FILE, 'r') as f:
-                cache_data = json.load(f)
-                # Check if cache is for current year and not expired
-                if cache_data.get('year') == current_year and cache_data.get('expires') > datetime.now().timestamp():
-                    logger.info(f"Using cached NSE holidays for {current_year}")
-                    return cache_data.get('holidays', [])
+    # Convert our dictionary to the expected format
+    for date_str, description in NSE_HOLIDAYS_2025.items():
+        # Parse the year from the date string
+        holiday_year = int(date_str.split('-')[0])
         
-        # NSE holiday list URL - this may change and need updating
-        url = "https://www.nseindia.com/api/holiday-master?type=trading"
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'application/json'
-        }
-        
-        print(f"Fetching NSE holidays for {current_year} from {url}")
-        logger.info(f"Fetching NSE holidays for {current_year}")
-        response = requests.get(url, headers=headers, timeout=10)
-        print(f"Response status code: {response.status_code}")
-        response.raise_for_status()
-        
-        data = response.json()
-        print(f"Response data keys: {data.keys()}")
-        
-        # Extract holiday dates - adjust this based on the actual JSON structure
-        for holiday in data.get('CM', []):  # CM refers to Capital Market segment
-            holiday_date_str = holiday.get('tradingDate')
-            holiday_desc = holiday.get('description', '')
-            
-            if holiday_date_str:
-                # Parse date from the format provided by NSE
-                try:
-                    # Adjust the date parsing format based on NSE's date format
-                    holiday_date = datetime.strptime(holiday_date_str, '%d-%b-%Y').strftime('%Y-%m-%d')
-                    holidays.append({
-                        'date': holiday_date,
-                        'description': holiday_desc
-                    })
-                    print(f"Added holiday: {holiday_date} - {holiday_desc}")
-                except ValueError as e:
-                    logger.error(f"Failed to parse holiday date {holiday_date_str}: {e}")
-                    print(f"Failed to parse holiday date {holiday_date_str}: {e}")
-        
-        # Cache the results for 24 hours
-        cache_data = {
-            'year': current_year,
-            'expires': (datetime.now() + timedelta(hours=24)).timestamp(),
-            'holidays': holidays
-        }
-        
-        try:
-            os.makedirs(os.path.dirname(HOLIDAYS_CACHE_FILE), exist_ok=True)
-            with open(HOLIDAYS_CACHE_FILE, 'w') as f:
-                json.dump(cache_data, f)
-            logger.info(f"Cached {len(holidays)} NSE holidays for {current_year}")
-        except Exception as e:
-            logger.error(f"Failed to cache holidays: {e}")
-            print(f"Failed to cache holidays: {e}")
-        
-        return holidays
+        # Only include holidays for the current year or future years
+        # This is to maintain compatibility with the original function's behavior
+        if holiday_year >= current_year:
+            holidays.append({
+                'date': date_str,
+                'description': description
+            })
     
-    except Exception as e:
-        logger.error(f"Error fetching NSE holidays: {e}")
-        print(f"Error fetching NSE holidays: {e}")
-        
-        # If error occurs, try to use cached data even if expired
-        try:
-            if os.path.exists(HOLIDAYS_CACHE_FILE):
-                with open(HOLIDAYS_CACHE_FILE, 'r') as f:
-                    cache_data = json.load(f)
-                    if cache_data.get('year') == current_year:
-                        logger.info(f"Using expired cached NSE holidays due to fetch error")
-                        return cache_data.get('holidays', [])
-        except Exception as cache_err:
-            logger.error(f"Failed to load cached holidays: {cache_err}")
-            print(f"Failed to load cached holidays: {cache_err}")
-        
-        return []
-
-def is_market_holiday(date=None):
-    """
-    Check if the given date (or today if None) is an NSE holiday
-    Returns True if it's a holiday, False otherwise
-    """
-    if date is None:
-        date = datetime.now(IST).date()
-    else:
-        # Ensure we're working with a date object
-        if isinstance(date, datetime):
-            date = date.date()
+    # Sort holidays by date
+    holidays = sorted(holidays, key=lambda x: x['date'])
     
-    date_str = date.strftime('%Y-%m-%d')
-    print(f"Checking if {date_str} is a holiday")
-    
-    # Get holidays
-    holidays = fetch_nse_holidays()
-    print(f"Found {len(holidays)} holidays in the database")
-    
-    # Check if date is in holidays
-    for holiday in holidays:
-        if holiday.get('date') == date_str:
-            print(f"{date_str} is an NSE holiday: {holiday.get('description')}")
-            logger.info(f"{date_str} is an NSE holiday: {holiday.get('description')}")
-            return True
-    
-    print(f"{date_str} is NOT an NSE holiday")
-    return False
-
-def get_next_trading_day(date=None):
-    """
-    Get the next trading day from the given date (or today if None)
-    Accounts for weekends and holidays
-    """
-    if date is None:
-        date = datetime.now(IST).date()
-    else:
-        # Ensure we're working with a date object
-        if isinstance(date, datetime):
-            date = date.date()
-    
-    print(f"Finding next trading day after {date}")
-    
-    # Start with next day
-    next_day = date + timedelta(days=1)
-    
-    # Keep checking until we find a trading day
-    max_attempts = 30  # Safety to avoid infinite loop
-    attempts = 0
-    
-    while attempts < max_attempts:
-        attempts += 1
-        # Check if it's a weekend
-        if next_day.weekday() > 4:  # Saturday or Sunday
-            print(f"{next_day} is a weekend, checking next day")
-            next_day += timedelta(days=1)
-            continue
-        
-        # Check if it's a holiday
-        if is_market_holiday(next_day):
-            print(f"{next_day} is a holiday, checking next day")
-            next_day += timedelta(days=1)
-            continue
-        
-        # Found a trading day
-        print(f"Next trading day is {next_day}")
-        return next_day
-    
-    print("Warning: Reached maximum attempts without finding a trading day")
-    return next_day  # Return the last checked day as a fallback
+    logger.info(f"Fetched {len(holidays)} NSE holidays for {current_year} and beyond")
+    return holidays
 
 if __name__ == "__main__":
-    print("================================")
-    print("NSE Holiday Checker Test")
-    print("================================")
+    # Test the module functions
+    logger.info("Testing NSE Holidays module...")
     
-    # Test the module
-    print("\nFetching NSE holidays...")
-    holidays = fetch_nse_holidays()
-    print(f"\nNSE Holidays for {datetime.now(IST).year}:")
-    for holiday in holidays:
-        print(f"{holiday['date']} - {holiday['description']}")
+    # Check current market status
+    status = get_market_status()
+    logger.info(f"Current market status: {status['status']}")
+    logger.info(f"Status message: {status['message']}")
+    logger.info(f"Is market open: {status['is_open']}")
+    logger.info(f"Next trading day: {status['next_trading_day']}")
+    logger.info(f"Next market open: {status['next_market_open']}")
     
-    # Test if today is a holiday
-    today = datetime.now(IST).date()
-    print(f"\nChecking if today ({today}) is a holiday...")
-    if is_market_holiday():
-        print(f"Result: Today ({today}) is an NSE holiday")
-    else:
-        print(f"Result: Today ({today}) is NOT an NSE holiday")
+    # Check some known holidays
+    republic_day = dt(2025, 1, 26).date()
+    logger.info(f"Is Republic Day (2025-01-26) a holiday? {is_market_holiday(republic_day)}")
+    logger.info(f"Holiday name: {get_holiday_name(republic_day)}")
     
-    # Get next trading day
-    print("\nCalculating next trading day...")
-    next_trading = get_next_trading_day()
-    print(f"Result: Next trading day is {next_trading}")
+    # Check next trading day after a holiday
+    next_day = get_next_trading_day(republic_day)
+    logger.info(f"Next trading day after Republic Day: {next_day}")
     
-    print("\nTest complete.") 
+    logger.info("NSE Holidays module test complete.") 

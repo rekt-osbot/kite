@@ -128,7 +128,7 @@ def wait_for_market_open():
                         closure_reason = ""
                         if current_time.weekday() > 4:
                             closure_reason = "weekend"
-                        elif is_market_holiday():
+                        elif is_market_holiday(current_time):
                             holidays = fetch_nse_holidays()
                             date_str = current_time.strftime('%Y-%m-%d')
                             for holiday in holidays:
@@ -192,7 +192,7 @@ def main():
             # Import here to avoid circular imports
             from nse_holidays import is_market_holiday, fetch_nse_holidays
             
-            if is_market_holiday():
+            if is_market_holiday(datetime.now(IST)):
                 # Only import what we need for notification
                 try:
                     from telegram_notifier import TelegramNotifier

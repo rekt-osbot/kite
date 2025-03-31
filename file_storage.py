@@ -1,114 +1,178 @@
+#!/usr/bin/env python
+"""
+File Storage Module
+
+Simple file-based storage for tokens and settings instead of using a database.
+Uses JSON files to persist data.
+"""
 import os
 import json
-import time
+import logging
 from datetime import datetime, timedelta
-import pytz
+import time
 
-# Set IST timezone
-IST = pytz.timezone('Asia/Kolkata')
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class FileStorage:
-    """
-    A simple file-based storage system to replace database functionality
-    for token and settings storage.
-    """
+    """File-based storage implementation using JSON files"""
     
-    def __init__(self, storage_dir=None):
-        """Initialize the file storage system"""
-        self.storage_dir = storage_dir or os.path.join(os.getcwd(), 'data')
-        os.makedirs(self.storage_dir, exist_ok=True)
+    def __init__(self, data_dir="data"):
+        """Initialize the storage with a data directory"""
+        self.data_dir = data_dir
         
-        # Initialize files if they don't exist
-        self.token_file = os.path.join(self.storage_dir, 'token.json')
-        self.settings_file = os.path.join(self.storage_dir, 'settings.json')
+        # Create data directory if it doesn't exist
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir, exist_ok=True)
         
-        if not os.path.exists(self.token_file):
-            self._save_json(self.token_file, {})
-        
-        if not os.path.exists(self.settings_file):
-            default_settings = {
-                'DEFAULT_QUANTITY': "1",
-                'MAX_TRADE_VALUE': "5000",
-                'STOP_LOSS_PERCENT': "2",
-                'TARGET_PERCENT': "4", 
-                'MAX_POSITION_SIZE': "5000",
-                'TELEGRAM_ENABLED': "true"
-            }
-            self._save_json(self.settings_file, default_settings)
+        # File paths
+        self.token_file = os.path.join(data_dir, "token.json")
+        self.settings_file = os.path.join(data_dir, "settings.json")
     
-    def _save_json(self, filepath, data):
-        """Save data to a JSON file"""
-        with open(filepath, 'w') as f:
-            json.dump(data, f, indent=2)
-    
-    def _load_json(self, filepath):
-        """Load data from a JSON file"""
-        try:
-            with open(filepath, 'r') as f:
-                return json.load(f)
-        except:
-            return {}
-    
-    # Token management functions
     def save_token(self, user_id, username, access_token, expires_in_hours=24):
-        """Save an authentication token"""
-        now = datetime.now(IST)
+        """
+        Save access token to file storage
+        
+        Args:
+            user_id (str): User ID from Zerodha
+            username (str): Username from Zerodha
+            access_token (str): The access token to save
+            expires_in_hours (int): Hours until token expiration
+            
+        Returns:
+            dict: Token data with expiration info
+        """
+        now = datetime.now()
         expires_at = now + timedelta(hours=expires_in_hours)
         
+        # Create token data
         token_data = {
-            'user_id': user_id,
-            'username': username,
-            'access_token': access_token,
-            'created_at': now.strftime("%Y-%m-%d %H:%M:%S"),
-            'expires_at': expires_at.strftime("%Y-%m-%d %H:%M:%S")
+            "user_id": user_id,
+            "username": username,
+            "access_token": access_token,
+            "created_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "expires_at": expires_at.strftime("%Y-%m-%d %H:%M:%S"),
+            "expires_timestamp": time.mktime(expires_at.timetuple())
         }
         
-        self._save_json(self.token_file, token_data)
+        # Write to file
+        with open(self.token_file, "w") as f:
+            json.dump(token_data, f, indent=2)
+            
+        logger.info(f"Saved token for user {username} (expires in {expires_in_hours} hours)")
         return token_data
     
     def get_token(self):
-        """Get the current token, or None if expired"""
-        token_data = self._load_json(self.token_file)
+        """
+        Get the saved access token if it exists and is valid
         
-        if not token_data:
+        Returns:
+            dict: Token data or None if not found or expired
+        """
+        if not os.path.exists(self.token_file):
+            logger.warning("No token file found")
             return None
         
-        # Check if token is expired
-        now = datetime.now(IST)
-        expires_at = datetime.strptime(token_data.get('expires_at', ''), "%Y-%m-%d %H:%M:%S")
-        expires_at = IST.localize(expires_at)
+        try:
+            with open(self.token_file, "r") as f:
+                token_data = json.load(f)
+            
+            # Check if token is expired
+            if "expires_timestamp" in token_data:
+                now_timestamp = time.time()
+                if now_timestamp > token_data["expires_timestamp"]:
+                    logger.warning("Token has expired")
+                    return None
+            
+            return token_data
         
-        if now > expires_at:
+        except Exception as e:
+            logger.error(f"Error reading token: {e}")
             return None
-        
-        return token_data
-    
-    def is_token_expired(self):
-        """Check if the current token is expired"""
-        token = self.get_token()
-        return token is None
-    
-    # Settings functions
-    def get_setting(self, key, default=None):
-        """Get a setting value"""
-        settings = self._load_json(self.settings_file)
-        return settings.get(key, default)
     
     def set_setting(self, key, value):
-        """Set a setting value"""
-        settings = self._load_json(self.settings_file)
+        """
+        Save a setting to file storage
+        
+        Args:
+            key (str): Setting key
+            value (str): Setting value
+        """
+        # Load existing settings
+        settings = self.get_all_settings()
+        
+        # Update with new value
         settings[key] = value
-        self._save_json(self.settings_file, settings)
+        
+        # Write back to file
+        with open(self.settings_file, "w") as f:
+            json.dump(settings, f, indent=2)
+        
+        logger.info(f"Updated setting: {key}")
+    
+    def get_setting(self, key, default=None):
+        """
+        Get a setting value
+        
+        Args:
+            key (str): Setting key
+            default: Default value if not found
+            
+        Returns:
+            Value of the setting or default if not found
+        """
+        settings = self.get_all_settings()
+        return settings.get(key, default)
     
     def get_all_settings(self):
-        """Get all settings"""
-        return self._load_json(self.settings_file)
+        """
+        Get all settings as a dictionary
+        
+        Returns:
+            dict: All settings
+        """
+        if not os.path.exists(self.settings_file):
+            return {}
+        
+        try:
+            with open(self.settings_file, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error reading settings: {e}")
+            return {}
     
     def update_settings(self, settings_dict):
-        """Update multiple settings at once"""
-        current_settings = self._load_json(self.settings_file)
+        """
+        Update multiple settings at once
+        
+        Args:
+            settings_dict (dict): Dictionary of settings to update
+        """
+        # Load existing settings
+        current_settings = self.get_all_settings()
+        
+        # Update with new values
         current_settings.update(settings_dict)
-        self._save_json(self.settings_file, current_settings)
+        
+        # Write back to file
+        with open(self.settings_file, "w") as f:
+            json.dump(current_settings, f, indent=2)
+        
+        logger.info(f"Updated {len(settings_dict)} settings")
+    
+    def clear(self):
+        """Clear all stored data (for testing)"""
+        if os.path.exists(self.token_file):
+            os.remove(self.token_file)
+        
+        if os.path.exists(self.settings_file):
+            os.remove(self.settings_file)
+        
+        logger.info("Cleared all stored data")
 
-# Create a global instance for easy access
+# Create a global instance
 storage = FileStorage() 

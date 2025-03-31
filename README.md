@@ -1,151 +1,95 @@
-# Zerodha Kite API Integration with ChartInk
+# Kite Trading Bot - Developer Documentation
 
-This project connects to Zerodha Kite API to fetch user profile, margin details, order history, and current positions. It includes a complete trading dashboard, alerts tracking, and a webhook server that receives ChartInk scanner alerts and automatically executes trades.
+## Project Overview
 
-## Features
+This project is an algorithmic trading bot that integrates Zerodha's Kite API with ChartInk webhook alerts to automate stock trading on India's National Stock Exchange (NSE). The system features rate-limited API interactions, market status determination with holiday awareness, and a modular architecture designed to prevent circular dependencies.
 
-- **Complete Trading Dashboard** - Monitor positions, orders, and account balances
-- **Alerts Tracking** - View ChartInk alerts history with formatting for buy/sell signals
-- **Settings Management** - Configure trading parameters and notification settings
-- **Telegram Notifications** - Receive instant alerts for trades, signals, and authentication status
-- **Authentication System** - Login, token management, and session handling
-- **Automated Trading** - Execute trades automatically based on ChartInk alerts
-- **Smart Order Management** - Place orders with intelligent position sizing and risk management
-- **Enhanced Signal Detection** - Advanced keyword detection for buy/sell signals
-- **Delivery Trading (CNC)** - All orders use CNC (delivery) type for equity trading
-- **Dynamic Position Sizing** - Automatically calculates position size based on available funds
+## Core Architecture
 
-## Key Trading Features
+### Key Modules
 
-- **CNC Orders**: All trades use delivery (CNC) order type instead of intraday (MIS)
-- **Stop-Loss Only**: System places only stop-loss orders without targets for better trade management
-- **Intelligent Position Sizing**: Uses a configurable max position size and checks available funds
-- **Available Funds Check**: Verifies account has sufficient funds before placing orders
+| Module | Purpose |
+|--------|---------|
+| `chartink_webhook.py` | Flask application that processes webhook requests and executes trades |
+| `railway_start.py` | Application entry point that handles market hours logic |
+| `kite_connect.py` | Zerodha Kite API integration wrapper |
+| `kite_rate_limiter.py` | Token bucket rate limiter for API calls |
+| `nse_holidays.py` | NSE market holiday and operation status determination |
+| `dependency_resolver.py` | Lazy loading mechanism to prevent circular dependencies |
+| `file_storage.py` | File-based JSON storage for tokens and settings |
+| `telegram_notifier.py` | Notification system for system status and trade alerts |
+| `scheduler.py` | Background task scheduler |
 
-## Setup
+### Design Patterns
 
-### Local Development
+- **Token Bucket Pattern**: Used for API rate limiting 
+- **Lazy Loading**: Used to resolve circular import dependencies
+- **Webhook Processing**: Event-driven architecture for trade signals
+- **Stateless Operation**: Designed to minimize persistent state requirements
 
-1. Install the required dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
+## Technical Implementations
 
-2. Ensure your `.env` file has the required API credentials:
-   ```
-   KITE_API_KEY=your_api_key
-   KITE_API_SECRET=your_api_secret
-   KITE_ACCESS_TOKEN=
-   
-   # Trading Parameters
-   DEFAULT_QUANTITY=1
-   MAX_TRADE_VALUE=5000
-   STOP_LOSS_PERCENT=2
-   TARGET_PERCENT=4
-   MAX_POSITION_SIZE=5000
-   
-   # Server Configuration
-   PORT=5000
-   DEBUG=True
-   
-   # For Railway Deployment
-   APP_URL=https://your-railway-app-url.up.railway.app
-   REDIRECT_URL=https://your-railway-app-url.up.railway.app/auth/redirect
-   
-   # Telegram Notifications (Optional)
-   TELEGRAM_BOT_TOKEN=your_bot_token_here
-   TELEGRAM_CHAT_ID=your_chat_id_here
-   
-   # Optional: Backup Notification (ntfy.sh)
-   NTFY_TOPIC=your-notification-channel
-   ```
+### 1. API Rate Limiting
 
-   You need to obtain your API key and secret from the [Zerodha Kite Developer Console](https://kite.trade/).
+The system implements a token bucket algorithm in `kite_rate_limiter.py` to prevent exceeding Zerodha's API rate limits of 3 requests/second. Implementation features:
 
-3. For Telegram notifications:
-   - Create a Telegram bot via [BotFather](https://t.me/BotFather)
-   - Get your chat ID (use [@userinfobot](https://t.me/userinfobot) or create a group and add [@RawDataBot](https://t.me/RawDataBot))
-   - Add the bot token and chat ID to your .env file
+- Configurable request rate and bucket capacity
+- Operation cost weighting (order operations cost more than data retrieval)
+- Automatic request throttling with backoff
 
-### Railway Deployment
+Example usage:
+```python
+from kite_rate_limiter import get_rate_limited_kite
+from kite_connect import KiteConnect
 
-1. Sign up at [railway.app](https://railway.app) (free tier available)
+# Create a rate-limited Kite instance
+kite_base = KiteConnect(api_key="API_KEY")
+kite = get_rate_limited_kite(kite_base)
 
-2. Create a new project:
-   - Go to Railway dashboard
-   - Click "New Project" → "Deploy from GitHub"
-   - Connect your GitHub repository
+# Use normally - all API calls are now rate-limited
+profile = kite.profile()
+```
 
-3. Set Environment Variables:
-   - Go to your project settings → "Variables"
-   - Add all the environment variables from your .env file
-   - Make sure to set:
-     - `APP_URL`: Your Railway app URL
-     - `REDIRECT_URL`: Your Railway app URL + "/auth/redirect"
-     - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (if using Telegram)
+### 2. Market Status Determination
 
-4. Set Up PostgreSQL Database:
-   - In your Railway project, click "+ New"
-   - Select "Database" → "PostgreSQL"
-   - Wait for the database to provision
-   - The `DATABASE_URL` environment variable will automatically be added to your project
-   - See [DATABASE_SETUP.md](DATABASE_SETUP.md) for detailed instructions
+The `nse_holidays.py` module provides market status intelligence:
 
-5. Set Up Zerodha App:
-   - Go to [Zerodha Developer Console](https://developers.kite.trade/apps)
-   - Create a new app or edit your existing one
-   - Set the Redirect URL to match your `REDIRECT_URL` (https://your-railway-app-url.up.railway.app/auth/redirect)
+- Holiday calendar for the NSE (hardcoded for 2025)
+- Market hour validation (9:15 AM - 3:30 PM IST, Monday-Friday)
+- Next trading day calculation that skips holidays
+- Detailed market status reporting
 
-6. First-time Token Authentication:
-   - Open your Railway app URL in a browser
-   - Click "Login to Zerodha" and follow the authentication process
-   - After successful authentication, your webhook is ready to receive ChartInk alerts
-   - The authentication token will be stored in the database and will persist for 24 hours
+```python
+from nse_holidays import is_market_holiday, get_market_status
 
-## Expected Behavior
+# Get current market status
+status = get_market_status()
+if status['is_open']:
+    # Execute trading logic
+else:
+    # Handle closed market scenario
+    logger.info(f"Market closed: {status['message']}")
+    next_open = status['next_market_open']
+```
 
-The system operates in the following manner when it receives a ChartInk alert:
+### 3. Circular Dependency Resolution
 
-1. **Authentication Check**: Verifies the Zerodha API token is valid
-2. **Available Funds Check**: Confirms sufficient funds are available for trading
-3. **Signal Processing**:
-   - Parses the stocks and prices from the alert
-   - Determines buy/sell action based on scanner name or explicit action field
-   - Logs the alert and notifies via Telegram
-4. **For Each Stock**:
-   - **Fund Allocation Check**: Ensures there are enough remaining funds
-   - **Position Sizing**: Calculates quantity based on the Max Position Size setting and available funds
-   - **Order Placement**:
-     - Places market orders with CNC (delivery) order type
-     - Uses CNC (delivery) order type for all trades
-   - **Risk Management**: Places stop-loss orders at the configured percentage
-   - **Trade Tracking**: Logs all trade details and sends notifications
-5. **Dashboard Update**: Updates the positions and orders on the dashboard
+The `dependency_resolver.py` implements lazy module imports to break circular dependencies:
 
-The system deliberately does not place target orders, leaving you in control of taking profits while automatically managing risk with stop-loss orders.
+```python
+from dependency_resolver import lazy_import
 
-## Usage
+# Lazy load instead of direct import 
+ModuleB = lazy_import('module_b', 'ModuleB')
 
-### Dashboard and Web Interface
+# Later when needed:
+instance = ModuleB()  # Only loaded at this point
+```
 
-Once deployed (or running locally), you can access the full application at your app URL:
+### 4. Signal Processing Logic
 
-- **Dashboard** (`/` or `/auth/dashboard.html`) - View positions, orders, and account balances
-- **Alerts** (`/auth/alerts.html`) - Track ChartInk alert history
-- **Settings** (`/auth/settings.html`) - Configure trading and notification parameters
-- **Authentication** (`/auth/refresh.html`) - Login to Zerodha and manage tokens
+The webhook handler parses ChartInk alerts and determines trading intent through keyword analysis:
 
-### Setting up ChartInk
-
-1. Create a scanner in ChartInk
-2. Set up a webhook to your server:
-   - Go to your scanner and click "Create/Modify Alert" 
-   - In the webhook URL field, enter: 
-     - For local testing with ngrok: `http://your-ngrok-url/webhook`
-     - For Railway deployment: `https://your-railway-app-url.up.railway.app/webhook`
-   - Make sure your server is accessible from the internet
-
-ChartInk will send alerts in the following format:
 ```json
 {
     "stocks": "STOCK1,STOCK2,STOCK3",
@@ -157,51 +101,78 @@ ChartInk will send alerts in the following format:
 }
 ```
 
-### Advanced Signal Detection
+Buy/sell signal classification uses these keyword sets:
+- **Buy Keywords**: "buy", "bull", "bullish", "long", "breakout", "up", "uptrend", "support", "bounce", "reversal", "upside"
+- **Sell Keywords**: "sell", "bear", "bearish", "short", "breakdown", "down", "downtrend", "resistance", "fall", "decline"
 
-The application automatically determines whether to buy or sell based on keywords in the scan and alert names. Recognized keywords include:
+### 5. File-Based Storage
 
-**Buy Keywords**: "buy", "bull", "bullish", "long", "breakout", "up", "uptrend", "support", "bounce", "reversal", "upside"
+The `file_storage.py` provides a lightweight alternative to database storage:
 
-**Sell Keywords**: "sell", "bear", "bearish", "short", "breakdown", "down", "downtrend", "resistance", "fall", "decline"
+- JSON file-based persistence
+- Token management with expiration handling
+- Settings storage with defaults
+- Thread-safe operations
 
-You can also explicitly set the action by including `"action":"BUY"` or `"action":"SELL"` in your webhook payload.
+## System Constants and Configurations
 
-### Token Refresh
+### Environmental Variables
 
-Zerodha tokens expire at 6 AM IST every day. To refresh your token:
+Key configuration parameters are loaded from environment variables:
 
-1. **Web Interface**
-   - Visit the authentication page at `/auth/refresh.html`
-   - Click "Login to Zerodha" button
-   - Complete the Zerodha login flow
-   - Your token will be updated and ready to use
-
-2. **Automatic Notification**
-   - You'll receive a Telegram notification when your token expires
-   - Click the link in the notification to refresh your token
-
-## Testing the Webhook
-
-You can simulate ChartInk alerts using tools like Postman or curl:
-
-```bash
-curl -X POST https://your-app-url/webhook \
-  -H "Content-Type: application/json" \
-  -d '{"stocks":"RELIANCE,INFY,TCS","trigger_prices":"2500,1800,3500","scan_name":"Bullish Breakout","triggered_at":"3:45 pm","alert_name":"Breakout Alert"}'
+```
+KITE_API_KEY          # Zerodha API key
+KITE_API_SECRET       # Zerodha API secret
+DEFAULT_QUANTITY      # Default order quantity
+MAX_TRADE_VALUE       # Maximum value per trade
+STOP_LOSS_PERCENT     # Default stop-loss percentage
+TARGET_PERCENT        # Default target percentage
+MAX_POSITION_SIZE     # Maximum position size
+API_RATE_LIMIT        # API calls per second (default: 3)
+PORT                  # Server port (default: 5000)
+BYPASS_MARKET_HOURS   # Testing flag to bypass market hours check
 ```
 
-## Next Steps
+### Market Constants
 
-See [NEXT_STEPS.md](NEXT_STEPS.md) for the planned enhancements and future roadmap.
+Market operation parameters:
+- Trading hours: 9:15 AM - 3:30 PM IST
+- Pre-market session: 9:00 AM - 9:15 AM IST
+- Weekly closed days: Saturday and Sunday
+- Special holiday closures defined in `NSE_HOLIDAYS_2025` dictionary
 
-## Documentation
+## Trading Logic Flow
 
-- For more information about the Zerodha Kite API, refer to:
-  https://kite.trade/docs/connect/v3/
-  
-- For information about ChartInk webhooks, visit:
-  https://chartink.com/articles/alerts/webhook-support-for-alerts/
-  
-- For Telegram Bot API documentation:
-  https://core.telegram.org/bots/api 
+1. Webhook receives signal from ChartInk
+2. Signal passes preliminary validation
+3. Stock symbols and trigger prices are extracted
+4. Trading intent (buy/sell) is determined from scan name or explicit action field
+5. Available margin is checked for trade viability
+6. Position size is calculated based on available funds and configured limits
+7. Market order is placed with delivery (CNC) order type
+8. Stop-loss order is placed at configured percentage from entry
+9. Trade details are logged and notifications sent
+10. Dashboard is updated with new positions and orders
+
+## Technical Limitations
+
+- The Zerodha API token expires daily at 6 AM IST and requires re-authentication
+- API rate limits of 3 requests/second must be respected
+- Order modifications have higher API rate costs than data retrieval
+- Market status checking relies on the accuracy of the hardcoded holiday calendar
+
+## Recent Improvements
+
+1. ✅ **Market Status Determination**: Implemented the `nse_holidays.py` module for accurate market status checking
+2. ✅ **API Rate Limiting**: Added the token bucket rate limiter to prevent API rate limit violations
+3. ✅ **Circular Dependency Resolution**: Implemented lazy imports to avoid circular import errors
+
+## For AI Developers
+
+When making modifications to this codebase, consider:
+
+1. **Rate Limiting**: All API interactions should go through the rate-limited client
+2. **Market Hours**: Trading logic should check market status before executing trades
+3. **Error Handling**: API errors should be caught and handled appropriately 
+4. **Logging**: Maintain detailed logging for troubleshooting
+5. **Dependencies**: Use lazy imports for any cross-module dependencies that could become circular 
