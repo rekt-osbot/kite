@@ -1,19 +1,15 @@
 import os
 import time
-import logging
 import requests
 import threading
 import pytz
 from datetime import datetime, timedelta
 from nse_holidays import is_market_holiday, get_next_trading_day
 from token_manager import token_manager
+from logger import get_logger  # Import our centralized logger
 
-# Configure logging to output to console
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Get logger for this module
+logger = get_logger(__name__)
 
 # Set IST timezone
 IST = pytz.timezone('Asia/Kolkata')
@@ -30,7 +26,7 @@ def is_market_open():
     # Check if it's a weekday (0 is Monday, 6 is Sunday)
     weekday = now.weekday()
     if weekday > 4:  # Saturday or Sunday
-        logger.info(f"Market closed: Weekend (weekday {weekday})")
+        logger.debug(f"Market closed: Weekend (weekday {weekday})")
         return False
     
     # Force date to have the correct timezone
@@ -38,7 +34,7 @@ def is_market_open():
     
     # Check if it's a holiday
     if is_market_holiday(date_to_check):
-        logger.info(f"Market closed: Holiday on {date_to_check}")
+        logger.debug(f"Market closed: Holiday on {date_to_check}")
         return False
     
     # Create datetime objects for market open (9:00 AM) and close (3:30 PM)
@@ -46,12 +42,13 @@ def is_market_open():
     market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
     
     # Check if current time is within market hours
-    if market_open <= now <= market_close:
-        logger.info(f"Market open: Within trading hours ({now.strftime('%H:%M')})")
-        return True
+    market_status = market_open <= now <= market_close
+    if market_status:
+        logger.debug(f"Market open: Within trading hours ({now.strftime('%H:%M')})")
     else:
-        logger.info(f"Market closed: Outside trading hours ({now.strftime('%H:%M')})")
-        return False
+        logger.debug(f"Market closed: Outside trading hours ({now.strftime('%H:%M')})")
+    
+    return market_status
 
 def calculate_next_market_open():
     """Calculate the next time the market will open"""

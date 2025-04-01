@@ -1,6 +1,5 @@
 import json
 import os
-import logging
 import time
 import sys
 import pytz
@@ -13,13 +12,10 @@ from token_manager import token_manager
 from memory_optimizer import MemoryOptimizer  # Add proper import
 from functools import wraps
 from flask_cors import CORS
+from logger import get_logger  # Import our centralized logger
 
-# Configure logging to output to console
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Get logger for this module
+logger = get_logger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -199,6 +195,7 @@ def create_market_closed_app():
         """Show the token refresh page"""
         return send_from_directory('auth', 'refresh.html')
     
+    # Log once when creating the app
     logger.info("Created minimal application for market-closed hours")
     return minimal_app
 

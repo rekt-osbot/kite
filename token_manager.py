@@ -6,22 +6,18 @@ Handles Zerodha API tokens specific to market hours operation.
 Zerodha tokens expire daily at 6 AM IST, which falls during trading hours (9 AM - 3:30 PM IST).
 """
 import os
-import logging
 import time
 import pytz
 from datetime import datetime, timedelta
 from file_storage import storage
 from dependency_resolver import lazy_import
+from logger import get_logger  # Import our centralized logger
 
 # Lazy imports to avoid circular dependencies
 TelegramNotifier = lazy_import('telegram_notifier', 'TelegramNotifier')
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Get logger for this module
+logger = get_logger(__name__)
 
 # Set IST timezone
 IST = pytz.timezone('Asia/Kolkata')

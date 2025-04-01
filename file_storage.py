@@ -7,16 +7,12 @@ Uses JSON files to persist data with backup locations for Railway's ephemeral fi
 """
 import os
 import json
-import logging
-from datetime import datetime, timedelta
 import time
+from datetime import datetime, timedelta
+from logger import get_logger  # Import our centralized logger
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Get logger for this module
+logger = get_logger(__name__)
 
 class FileStorage:
     """File-based storage implementation using JSON files with backup locations"""

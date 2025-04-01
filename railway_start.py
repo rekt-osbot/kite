@@ -6,19 +6,17 @@ and starts the appropriate application.
 import os
 import sys
 import time
-import logging
 import subprocess
 import threading
 from datetime import datetime, timedelta
 import pytz
 import gc  # Add garbage collection for memory optimization
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Import our centralized logger
+from logger import get_logger
+
+# Get logger for this module
+logger = get_logger(__name__)
 
 # Set IST timezone
 IST = pytz.timezone('Asia/Kolkata')
@@ -45,12 +43,12 @@ def is_market_open():
     
     # IMPORTANT: Always use IST timezone for market operations
     now = datetime.now(IST)
-    logger.info(f"Current date/time (IST): {now}")
+    logger.debug(f"Current date/time (IST): {now}")
     
     # Check if it's a weekday (0 is Monday, 6 is Sunday)
     weekday = now.weekday()
     if weekday > 4:  # Saturday or Sunday
-        logger.info(f"Market closed: Weekend (weekday {weekday})")
+        logger.debug(f"Market closed: Weekend (weekday {weekday})")
         return False
     
     # Force date to have the correct timezone
@@ -58,7 +56,7 @@ def is_market_open():
     
     # Check if it's a holiday
     if is_market_holiday(date_to_check):
-        logger.info(f"Market closed: Holiday on {date_to_check}")
+        logger.debug(f"Market closed: Holiday on {date_to_check}")
         return False
     
     # Create datetime objects for market open (9:00 AM) and close (3:30 PM)
@@ -66,12 +64,13 @@ def is_market_open():
     market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
     
     # Check if current time is within market hours
-    if market_open <= now <= market_close:
-        logger.info(f"Market open: Within trading hours ({now.strftime('%H:%M')})")
-        return True
+    market_status = market_open <= now <= market_close
+    if market_status:
+        logger.debug(f"Market open: Within trading hours ({now.strftime('%H:%M')})")
     else:
-        logger.info(f"Market closed: Outside trading hours ({now.strftime('%H:%M')})")
-        return False
+        logger.debug(f"Market closed: Outside trading hours ({now.strftime('%H:%M')})")
+    
+    return market_status
 
 def calculate_next_market_open():
     """Calculate the next time the market will open"""
@@ -253,6 +252,7 @@ def market_checker():
     Thread that intelligently checks market hours and restarts the app if needed
     """
     global next_scheduled_check
+    last_market_status = None  # Track last market status to avoid redundant logging
     
     while True:
         current_time = time.time()
@@ -263,10 +263,15 @@ def market_checker():
                 # Check if market is open
                 market_open = is_market_open()
                 
-                # If mode doesn't match market status, restart the app
+                # If status changed or mode doesn't match market status, take action
                 if market_open != is_full_mode:
-                    logger.info(f"Market status changed: {'open' if market_open else 'closed'}, restarting application")
+                    # Only log status change if it actually changed
+                    if market_open != last_market_status:
+                        logger.info(f"Market status changed: {'open' if market_open else 'closed'}, restarting application")
                     restart_application(market_open)
+                
+                # Update last status
+                last_market_status = market_open
                 
                 # Schedule next check based on current time and market status
                 sleep_time = calculate_time_until_next_check()

@@ -1,10 +1,10 @@
 import os
-import logging
 import json
 import requests
 from datetime import datetime, date
 from dotenv import load_dotenv
 from telegram import Bot
+from logger import get_logger  # Import our centralized logger
 
 class TelegramNotifier:
     """
@@ -12,8 +12,8 @@ class TelegramNotifier:
     """
     def __init__(self):
         """Initialize Telegram bot connection"""
-        # Initialize logger
-        self.logger = logging.getLogger(__name__)
+        # Get logger for this module
+        self.logger = get_logger(__name__)
         
         # Get credentials from environment variables
         self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -319,11 +319,7 @@ class TelegramNotifier:
         return self.send_formatted_notification("Test Message", test_message)
 
 if __name__ == "__main__":
-    # Configure basic logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    # No need to configure logging here since we're using the centralized logger
     
     # Test the notification
     notifier = TelegramNotifier()

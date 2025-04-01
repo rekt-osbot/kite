@@ -7,12 +7,12 @@ especially useful for Railway deployment where memory is limited.
 import gc
 import sys
 import time
-import logging
 import os
 import threading
+from logger import get_logger  # Import our centralized logger
 
-# Configure logging
-logger = logging.getLogger(__name__)
+# Get logger for this module
+logger = get_logger(__name__)
 
 class MemoryOptimizer:
     """
