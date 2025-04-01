@@ -372,12 +372,6 @@ else:
             except Exception as e:
                 logger.error(f"Error saving user data: {e}")
             
-            # Notify via Telegram if enabled
-            try:
-                telegram.notify_auth_status(True, profile.get('user_name', 'Unknown'))
-            except Exception as e:
-                logger.error(f"Error sending Telegram notification: {e}")
-            
             # Add a query param to force refresh
             return redirect('/auth/refresh?login_success=true&t=' + str(int(time.time())))
         except Exception as e:
