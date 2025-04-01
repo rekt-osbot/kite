@@ -49,22 +49,54 @@ def is_market_holiday(date):
     Check if a given date is a market holiday.
     
     Args:
-        date (datetime.date): The date to check
+        date (datetime.date or datetime.datetime): The date to check
         
     Returns:
         bool: True if the date is a holiday, False otherwise
     """
-    # Convert to date object if datetime was provided
+    # Use IST timezone for consistency
+    ist = pytz.timezone('Asia/Kolkata')
+    
+    # If we got a datetime with timezone, use date() to get just the date
     if isinstance(date, datetime.datetime):
-        date = date.date()
+        # Convert to IST if it has a timezone
+        if date.tzinfo is not None:
+            date = date.astimezone(ist).date()
+        else:
+            # If no timezone, assume it's already in IST
+            date = date.date()
+    
+    # Ensure we're working with a proper date object
+    if not isinstance(date, datetime.date):
+        logger.warning(f"Unexpected date type: {type(date)}, attempting conversion")
+        try:
+            date = datetime.date(date.year, date.month, date.day)
+        except Exception as e:
+            logger.error(f"Failed to convert date: {e}")
+            return False
     
     # Check if it's a weekend
     if date.weekday() in WEEKLY_OFFS:
         return True
     
     # Check if it's in the holiday list
+    # First check if the date is in the current year's format
+    curr_year = datetime.datetime.now(ist).year
     date_str = date.strftime('%Y-%m-%d')
-    return date_str in NSE_HOLIDAYS_2025
+    
+    # Direct lookup in holiday list
+    if date_str in NSE_HOLIDAYS_2025:
+        return True
+    
+    # If year is different, try checking with the current year
+    if date.year != 2025:
+        alt_date_str = f"2025-{date.month:02d}-{date.day:02d}"
+        if alt_date_str in NSE_HOLIDAYS_2025:
+            logger.warning(f"Date {date_str} matched holiday after year adjustment to {alt_date_str}")
+            return True
+    
+    # Not a holiday
+    return False
 
 def get_holiday_name(date):
     """

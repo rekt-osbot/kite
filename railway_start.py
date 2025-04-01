@@ -36,15 +36,22 @@ def is_market_open():
     # Import here to avoid circular imports
     from nse_holidays import is_market_holiday
     
+    # IMPORTANT: Always use IST timezone for market operations
     now = datetime.now(IST)
+    logger.info(f"Current date/time (IST): {now}")
+    
     # Check if it's a weekday (0 is Monday, 6 is Sunday)
-    if now.weekday() > 4:  # Saturday or Sunday
-        logger.info("Market closed: Weekend")
+    weekday = now.weekday()
+    if weekday > 4:  # Saturday or Sunday
+        logger.info(f"Market closed: Weekend (weekday {weekday})")
         return False
     
+    # Force date to have the correct timezone
+    date_to_check = now.date()
+    
     # Check if it's a holiday
-    if is_market_holiday(now):
-        logger.info("Market closed: Holiday")
+    if is_market_holiday(date_to_check):
+        logger.info(f"Market closed: Holiday on {date_to_check}")
         return False
     
     # Create datetime objects for market open (9:00 AM) and close (3:30 PM)
@@ -53,6 +60,7 @@ def is_market_open():
     
     # Check if current time is within market hours
     if market_open <= now <= market_close:
+        logger.info(f"Market open: Within trading hours ({now.strftime('%H:%M')})")
         return True
     else:
         logger.info(f"Market closed: Outside trading hours ({now.strftime('%H:%M')})")

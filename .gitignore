@@ -2,7 +2,8 @@
 .env
 .env.*
 !.env.example
-
+.cursorrules
+.cursor/
 # Python
 __pycache__/
 *.py[cod]

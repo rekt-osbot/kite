@@ -18,5 +18,8 @@ kiteconnect==4.1.0
 # Authentication
 pyjwt==2.8.0
 
+# System monitoring
+psutil==7.0.0
+
 # Lightweight dependencies - prefer these over heavier alternatives
 simplejson==3.19.2 
