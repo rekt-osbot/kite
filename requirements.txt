@@ -7,7 +7,7 @@ flask-cors==4.0.0
 
 # Notification systems
 python-telegram-bot==13.15
-
+urllib3==1.26.15
 # Scheduler and time handling
 apscheduler==3.6.3
 pytz==2023.3
