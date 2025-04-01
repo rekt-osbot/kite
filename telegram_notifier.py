@@ -6,14 +6,15 @@ from datetime import datetime, date
 from dotenv import load_dotenv
 from telegram import Bot
 
-logger = logging.getLogger(__name__)
-
 class TelegramNotifier:
     """
     Notification service using Telegram bot API
     """
     def __init__(self):
         """Initialize Telegram bot connection"""
+        # Initialize logger
+        self.logger = logging.getLogger(__name__)
+        
         # Get credentials from environment variables
         self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")

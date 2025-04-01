@@ -20,7 +20,6 @@ ENV/
 logs/
 
 # Data and sensitive files
-data/
 tokens/
 
 # Only exclude certain JSON files
