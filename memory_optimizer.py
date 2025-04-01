@@ -20,34 +20,54 @@ class MemoryOptimizer:
     and implements periodic cleanup when running in resource-constrained environments.
     """
     
-    def __init__(self, gc_interval=60*30, debug=False):
-        """
-        Initialize the memory optimizer.
-        
-        Args:
-            gc_interval (int): Interval in seconds for garbage collection (default: 30 minutes)
-            debug (bool): Whether to log detailed memory information
-        """
-        self.gc_interval = gc_interval
-        self.debug = debug
-        self.last_gc_time = 0
-        self.is_running = False
-        self.cleanup_thread = None
-        
-        # Set optimization environment variables
-        os.environ['PYTHONUNBUFFERED'] = '1'
-        os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
-        
-        # Check if we're in minimal mode
-        self.minimal_mode = os.getenv('MINIMAL_MODE', 'False').lower() == 'true'
+    def __init__(self):
+        """Initialize the memory optimizer"""
+        self.running = False
+        self.timer = None
+        self.interval = 300  # 5 minutes default
+        self.minimal_mode = os.getenv('MARKET_MODE', 'FULL').upper() == 'MINIMAL'
+        self.minimal_thread = None
         
         if self.minimal_mode:
             logger.info("Running in minimal mode - enabling aggressive memory optimization")
-            # Set more aggressive GC in minimal mode
-            self.gc_interval = 60 * 15  # 15 minutes
+            
+    def start_minimal_mode(self):
+        """Start memory optimization for minimal mode (market closed)"""
+        # Set more aggressive parameters for minimal mode
+        self.interval = 60  # Check every minute in minimal mode
         
-        # Initial garbage collection
-        self._collect_garbage()
+        # Start thread
+        self.minimal_thread = threading.Thread(target=self._aggressive_optimization, daemon=True)
+        self.minimal_thread.start()
+        logger.info("Started aggressive memory optimization for minimal mode")
+    
+    def _aggressive_optimization(self):
+        """More aggressive optimization for minimal mode"""
+        while True:
+            try:
+                # Force garbage collection
+                collected = gc.collect(generation=2)
+                logger.debug(f"Aggressive GC collected {collected} objects")
+                
+                # Free unused memory back to the system
+                if hasattr(gc, 'freeze'):
+                    gc.freeze()
+                
+                # Suggest system to release memory (Linux)
+                if sys.platform.startswith('linux'):
+                    try:
+                        import ctypes
+                        libc = ctypes.CDLL('libc.so.6')
+                        libc.malloc_trim(0)
+                        logger.debug("Called malloc_trim to release memory")
+                    except:
+                        pass
+                
+                # Sleep
+                time.sleep(self.interval)
+            except Exception as e:
+                logger.error(f"Error in aggressive memory optimization: {e}")
+                time.sleep(60)  # sleep and retry
     
     def _collect_garbage(self):
         """Perform garbage collection and log memory statistics"""

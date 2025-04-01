@@ -8,6 +8,7 @@ import sys
 import time
 import logging
 import subprocess
+import threading
 from datetime import datetime, timedelta
 import pytz
 import gc  # Add garbage collection for memory optimization
@@ -27,6 +28,12 @@ MEMORY_CHECK_INTERVAL = 30 * 60  # Check memory usage every 30 minutes
 FORCED_GC_INTERVAL = 2 * 60 * 60  # Force garbage collection every 2 hours
 last_memory_check = 0
 last_gc_time = 0
+
+# Market mode globals
+is_full_mode = False
+market_checker_thread = None
+app_process = None
+next_scheduled_check = 0  # Timestamp for next market check
 
 def is_market_open():
     """
@@ -115,316 +122,264 @@ def optimize_memory():
         except Exception as e:
             logger.error(f"Error during memory optimization: {e}")
 
-def wait_for_market_open():
-    """Wait until the market opens by calculating sleep time - with optimized resource usage"""
-    last_notification_time = None
+def restart_application(use_full_mode):
+    """
+    Restart the application in the appropriate mode
+    """
+    global app_process, is_full_mode
     
-    while True:
-        # Check if market is open now
-        if is_market_open():
-            logger.info("Market is now open. Starting application...")
-            
-            # Send notification that market is now open
+    # If there's a current process, terminate it
+    if app_process:
+        try:
+            app_process.terminate()
+            app_process.wait(timeout=10)
+            logger.info("Terminated existing application process")
+        except Exception as e:
+            logger.error(f"Error terminating process: {e}")
+            try:
+                import signal
+                app_process.send_signal(signal.SIGKILL)
+                logger.info("Force killed application process")
+            except:
+                logger.error("Failed to force kill process")
+    
+    # Start the new process
+    try:
+        logger.info(f"Starting application in {'FULL' if use_full_mode else 'MINIMAL'} mode")
+        
+        # Set environment variable to indicate mode
+        os.environ["MARKET_MODE"] = "FULL" if use_full_mode else "MINIMAL"
+        
+        # Start the application process with production-ready server
+        if use_full_mode:
+            # Full mode with gunicorn for production server
+            app_process = subprocess.Popen(["gunicorn", "--bind", "0.0.0.0:5000", "chartink_webhook:app"])
+        else:
+            # Minimal mode can use regular python to save resources
+            app_process = subprocess.Popen([sys.executable, "chartink_webhook.py"])
+        
+        # Update mode flag
+        old_mode = is_full_mode
+        is_full_mode = use_full_mode
+        
+        # Only send notification if this is a change from minimal to full mode or vice versa,
+        # not when restarting in the same mode
+        if use_full_mode != old_mode:
+            # Send notification about mode change
             try:
                 from telegram_notifier import TelegramNotifier
                 telegram = TelegramNotifier()
                 now = datetime.now(IST)
                 
-                message = f"🟢 <b>Market Now Open</b>\n\n" \
-                        f"The trading bot has started in full mode as the market is now open.\n" \
-                        f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S IST')}\n\n" \
-                        f"Trading operations have resumed automatically."
+                if use_full_mode:
+                    message = f"The trading bot has switched to FULL mode as the market is now open.\n" \
+                            f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S IST')}\n\n" \
+                            f"Trading operations have resumed automatically."
+                    
+                    telegram.send_formatted_notification(
+                        "Market Mode: FULL", 
+                        message,
+                        status="market_open"
+                    )
+                    logger.info(f"Sent mode change notification via Telegram: FULL mode")
+                else:
+                    # We'll only log this but not send a telegram notification for minimal mode
+                    # to avoid spamming the group
+                    logger.info(f"Switched to MINIMAL mode - market is now closed")
                 
-                telegram.send_message(message)
-                logger.info("Sent market open notification via Telegram")
             except Exception as e:
-                logger.error(f"Failed to send market open notification: {e}")
-                
-            break
+                logger.error(f"Failed to send mode change notification: {e}")
         
-        # Optimize memory while waiting
+    except Exception as e:
+        logger.error(f"Error starting application: {e}")
+
+def calculate_time_until_next_check():
+    """
+    Calculate the optimal time until the next market status check.
+    Returns time in seconds until the next check should occur.
+    This is more efficient than checking at fixed intervals.
+    """
+    now = datetime.now(IST)
+    
+    # If it's a weekend (Saturday or Sunday)
+    if now.weekday() > 4:
+        # Calculate time until Monday 8:45 AM
+        days_until_monday = 7 - now.weekday() if now.weekday() == 6 else 2
+        next_check = now.replace(hour=8, minute=45, second=0, microsecond=0) + timedelta(days=days_until_monday)
+        seconds_until_check = (next_check - now).total_seconds()
+        return max(seconds_until_check, 3600)  # Check at least once an hour even on weekends
+    
+    # If it's a holiday
+    from nse_holidays import is_market_holiday
+    if is_market_holiday(now.date()):
+        # Check once at 8:45 AM tomorrow
+        next_check = (now + timedelta(days=1)).replace(hour=8, minute=45, second=0, microsecond=0)
+        seconds_until_check = (next_check - now).total_seconds()
+        return max(seconds_until_check, 3600)  # Check at least once an hour on holidays
+    
+    # During trading days, check at specific times
+    current_hour = now.hour
+    current_minute = now.minute
+    
+    # Before market opens (midnight to 8:45 AM)
+    if current_hour < 8 or (current_hour == 8 and current_minute < 45):
+        # Schedule next check at 8:45 AM for pre-market preparation
+        next_check = now.replace(hour=8, minute=45, second=0, microsecond=0)
+        return (next_check - now).total_seconds()
+    
+    # Just before market opens (8:45 AM to 9:00 AM)
+    if current_hour == 8 and current_minute >= 45:
+        # Check every minute until market opens
+        return 60
+    
+    # During market hours (9:00 AM to 3:30 PM)
+    if (current_hour == 9 and current_minute >= 0) or (current_hour > 9 and current_hour < 15) or (current_hour == 15 and current_minute <= 30):
+        # Check every 15 minutes during market hours
+        return 15 * 60
+    
+    # Just after market closes (3:30 PM to 3:45 PM)
+    if current_hour == 15 and current_minute > 30 and current_minute < 45:
+        # Check every minute to catch the transition
+        return 60
+    
+    # After market closes (3:45 PM to midnight)
+    # Calculate time until tomorrow 8:45 AM
+    next_check = (now + timedelta(days=1)).replace(hour=8, minute=45, second=0, microsecond=0)
+    seconds_until_check = (next_check - now).total_seconds()
+    return seconds_until_check
+
+def market_checker():
+    """
+    Thread that intelligently checks market hours and restarts the app if needed
+    """
+    global next_scheduled_check
+    
+    while True:
+        current_time = time.time()
+        
+        # Only check if it's time for the next scheduled check
+        if current_time >= next_scheduled_check:
+            try:
+                # Check if market is open
+                market_open = is_market_open()
+                
+                # If mode doesn't match market status, restart the app
+                if market_open != is_full_mode:
+                    logger.info(f"Market status changed: {'open' if market_open else 'closed'}, restarting application")
+                    restart_application(market_open)
+                
+                # Schedule next check based on current time and market status
+                sleep_time = calculate_time_until_next_check()
+                logger.info(f"Next market check scheduled in {sleep_time//60} minutes, {sleep_time%60} seconds")
+                next_scheduled_check = current_time + sleep_time
+                
+            except Exception as e:
+                logger.error(f"Error in market checker: {e}")
+                # In case of error, check again in 5 minutes
+                next_scheduled_check = current_time + 300
+        
+        # Optimize memory
         optimize_memory()
         
-        # Calculate when the market will next open
-        next_open = calculate_next_market_open()
-        current_time = datetime.now(IST)
-        
-        if next_open:
-            wait_seconds = (next_open - current_time).total_seconds()
-            
-            if wait_seconds > 0:
-                # Determine optimal sleep strategy based on wait time
-                is_long_wait = wait_seconds > 3600  # More than 1 hour
-                
-                # Send periodic updates (but not too frequently - max once per 6 hours)
-                should_notify = False
-                
-                if last_notification_time is None:
-                    should_notify = True
-                elif (current_time - last_notification_time).total_seconds() > 6 * 3600:  # 6 hours
-                    should_notify = True
-                
-                if should_notify:
-                    try:
-                        from nse_holidays import is_market_holiday, fetch_nse_holidays
-                        from telegram_notifier import TelegramNotifier
-                        
-                        # Get current reason for market closure
-                        closure_reason = ""
-                        if current_time.weekday() > 4:
-                            closure_reason = "weekend"
-                        elif is_market_holiday(current_time):
-                            holidays = fetch_nse_holidays()
-                            date_str = current_time.strftime('%Y-%m-%d')
-                            for holiday in holidays:
-                                if holiday.get('date') == date_str:
-                                    closure_reason = holiday.get('description', 'holiday')
-                                    break
-                        else:
-                            closure_reason = "outside trading hours"
-                        
-                        # Send notification
-                        telegram = TelegramNotifier()
-                        hours_to_wait = round(wait_seconds / 3600, 1)
-                        
-                        message = f"⏳ <b>Waiting for Market to Open</b>\n\n" \
-                                f"The trading bot is waiting for the market to open ({closure_reason}).\n" \
-                                f"Current time: {current_time.strftime('%Y-%m-%d %H:%M:%S IST')}\n" \
-                                f"Next market open: {next_open.strftime('%Y-%m-%d %H:%M:%S IST')}\n" \
-                                f"Waiting for approximately {hours_to_wait} hours\n\n" \
-                                f"The bot will automatically start when the market opens."
-                        
-                        telegram.send_message(message)
-                        last_notification_time = current_time
-                        logger.info(f"Sent waiting notification via Telegram: Waiting {hours_to_wait} hours for market to open")
-                        
-                        # Clean up imported modules to save memory
-                        if 'telegram_notifier' in sys.modules:
-                            del sys.modules['telegram_notifier']
-                        if 'nse_holidays' in sys.modules:
-                            del sys.modules['nse_holidays']
-                        gc.collect()
-                    except Exception as e:
-                        logger.error(f"Failed to send waiting notification: {e}")
-                
-                logger.info(f"Market is closed. Next open at {next_open.strftime('%Y-%m-%d %H:%M:%S')} - sleeping for {wait_seconds/3600:.1f} hours")
-                
-                # Adaptive sleep strategy
-                if is_long_wait:
-                    # For long waits, use longer sleep intervals
-                    # Calculate optimal sleep interval based on time to market open
-                    # Cap at 1 hour maximum sleep for responsiveness
-                    sleep_interval = min(3600, max(300, wait_seconds / 10))
-                else:
-                    # For shorter waits, use more frequent checks (15 minutes max)
-                    sleep_interval = min(wait_seconds, 15 * 60)
-                
-                logger.info(f"Using sleep interval of {sleep_interval/60:.1f} minutes")
-                time.sleep(sleep_interval)
-            else:
-                # If next_open is in the past (e.g. calculation error), sleep shortly
-                logger.info("Calculation error or market should be open already. Checking again in 5 minutes.")
-                time.sleep(300)
-        else:
-            # Fallback - sleep for 15 minutes
-            logger.info("Could not determine next market open. Checking again in 15 minutes.")
-            time.sleep(900)
+        # Sleep a short time to prevent CPU spinning while allowing quick checks
+        # when needed (like during market open/close transitions)
+        time.sleep(30)
 
-def launch_minimal_app():
-    """Launch a minimal version of the app with reduced resources when market is closed"""
-    logger.info("Launching minimal version of the app during market closure")
+def wait_for_market_open():
+    """Wait until the market opens by calculating sleep time - with optimized resource usage"""
+    global market_checker_thread, next_scheduled_check
     
-    # Set environment variables to indicate running in minimal mode
-    os.environ["MINIMAL_MODE"] = "True"
-    os.environ["MARKET_CLOSED"] = "True"
+    # Initialize next check time to now
+    next_scheduled_check = time.time()
     
-    # Import necessary modules
-    from chartink_webhook import create_market_closed_app
+    # Start the market checker thread if not already running
+    if market_checker_thread is None or not market_checker_thread.is_alive():
+        market_checker_thread = threading.Thread(target=market_checker, daemon=True)
+        market_checker_thread.start()
+        logger.info("Started market checker thread")
     
-    # Create minimal Flask app
-    minimal_app = create_market_closed_app()
+    # Initial check - if market is open, break, otherwise continue waiting
+    if is_market_open():
+        logger.info("Market is now open. Starting application...")
+        
+        # Send notification that market is now open
+        try:
+            from telegram_notifier import TelegramNotifier
+            telegram = TelegramNotifier()
+            now = datetime.now(IST)
+            
+            message = f"The trading bot has started in full mode as the market is now open.\n" \
+                    f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S IST')}\n\n" \
+                    f"Trading operations have resumed automatically."
+            
+            telegram.send_formatted_notification(
+                "Market Now Open", 
+                message,
+                status="market_open"
+            )
+            logger.info("Sent market open notification via Telegram")
+        except Exception as e:
+            logger.error(f"Failed to send market open notification: {e}")
+        
+        # Start in full mode
+        restart_application(True)
+    else:
+        logger.info("Market is currently closed. Starting application in minimal mode...")
+        
+        # Start in minimal mode
+        restart_application(False)
     
-    # Configure minimal gunicorn settings to reduce resource usage
-    minimal_workers = 1
-    minimal_threads = 2
-    
-    port = int(os.getenv("PORT", 5000))
-    options = {
-        'bind': f'0.0.0.0:{port}',
-        'workers': minimal_workers,
-        'threads': minimal_threads,
-        'timeout': 30,  # Reduced timeout for minimal mode
-        'accesslog': '-',
-        'errorlog': '-',
-        'loglevel': 'warning',  # Reduce logging in minimal mode
-        'worker_class': 'sync',  # Use sync worker for minimal resources
-        'max_requests': 1000,    # Restart workers periodically to prevent memory bloat
-        'max_requests_jitter': 500
-    }
-    
-    # Start gunicorn with minimal app
+    # Keep the main thread alive
     try:
-        from gunicorn.app.base import BaseApplication
+        # Monitor the app process
+        while app_process.poll() is None:
+            time.sleep(1)
         
-        class MinimalGunicornApp(BaseApplication):
-            def __init__(self, app, options=None):
-                self.options = options or {}
-                self.application = app
-                super().__init__()
-                
-            def load_config(self):
-                for key, value in self.options.items():
-                    if key in self.cfg.settings and value is not None:
-                        self.cfg.set(key.lower(), value)
-                        
-            def load(self):
-                return self.application
+        # If we get here, the process terminated unexpectedly
+        logger.error(f"Application process terminated unexpectedly with code {app_process.returncode}")
         
-        MinimalGunicornApp(minimal_app, options).run()
-    except ImportError:
-        # Fallback to direct Flask app execution if gunicorn is not available
-        logger.warning("Gunicorn not available, falling back to Flask development server")
-        minimal_app.run(host="0.0.0.0", port=port, debug=False)
+        # Restart the application in the current mode
+        restart_application(is_full_mode)
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received, shutting down")
+        if app_process:
+            app_process.terminate()
+    except Exception as e:
+        logger.error(f"Error in main thread: {e}")
 
 def main():
-    """Main function to start the application with market hours checking and resource optimization"""
-    # Check if market hours bypass is enabled
-    bypass_market_hours = os.getenv("BYPASS_MARKET_HOURS", "False").lower() == "true"
-    
-    # Skip database initialization completely - we'll use file-based storage instead
+    """
+    Main function that starts either the full or standby version of the application.
+    """
     logger.info("Using file-based storage instead of database to reduce costs")
     
-    # Check if we should run in minimal mode (during market closed hours)
-    if not bypass_market_hours and not is_market_open():
+    # Initial market hours check
+    market_open = is_market_open()
+    
+    if market_open:
+        logger.info("Market is open. Starting full application with trading capabilities.")
+        
+        # Set market mode environment variable
+        os.environ["MARKET_MODE"] = "FULL"
+    else:
         logger.info("Market is closed. Entering standby mode with minimal resource usage.")
         
-        # Send market closure notification if it's due to a holiday
+        # Set market mode environment variable
+        os.environ["MARKET_MODE"] = "MINIMAL"
+        
+        # Prewarm Telegram for notifications
         try:
-            now = datetime.now(IST)
-            from nse_holidays import is_market_holiday, fetch_nse_holidays
-            
-            if is_market_holiday(now.date()):
-                # Only import what we need for notification
-                try:
-                    from telegram_notifier import TelegramNotifier
-                    
-                    # Get holiday description
-                    holidays = fetch_nse_holidays()
-                    date_str = now.strftime('%Y-%m-%d')
-                    holiday_desc = "Holiday"
-                    
-                    for holiday in holidays:
-                        if holiday.get('date') == date_str:
-                            holiday_desc = holiday.get('description', 'Holiday')
-                            break
-                    
-                    # Calculate next market open time
-                    next_open = calculate_next_market_open()
-                    next_open_str = next_open.strftime('%Y-%m-%d %H:%M:%S IST') if next_open else "Unknown"
-                    
-                    # Initialize and send notification
-                    telegram = TelegramNotifier()
-                    message = f"🔴 <b>Market Closed: {holiday_desc}</b>\n\n" \
-                            f"The trading bot has entered minimal resource mode due to a market holiday.\n" \
-                            f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S IST')}\n" \
-                            f"Next market open: {next_open_str}\n\n" \
-                            f"The bot will automatically switch to full mode when the market reopens."
-                    
-                    telegram.send_message(message)
-                    logger.info(f"Sent market holiday notification via Telegram: Market closed for {holiday_desc}")
-                    
-                    # Clean up imported modules
-                    if 'telegram_notifier' in sys.modules:
-                        del sys.modules['telegram_notifier']
-                    gc.collect()
-                except Exception as e:
-                    logger.error(f"Failed to send market holiday notification: {e}")
-            
-            # Clean up imported modules
-            if 'nse_holidays' in sys.modules:
-                del sys.modules['nse_holidays']
-            gc.collect()
+            from telegram_notifier import TelegramNotifier
+            TelegramNotifier()
+            logger.info("Prewarmed Telegram notifier")
         except Exception as e:
-            logger.error(f"Error checking for market holiday: {e}")
+            logger.error(f"Failed to prewarm Telegram notifier: {e}")
         
-        # Start minimal web service to respond to health checks
-        launch_minimal_app()
-        
-        # Wait until market opens (this is a blocking call)
-        wait_for_market_open()
-        
-        # Market is now open - restart the script to use full resources
-        logger.info("Market is now open - restarting script to start full application")
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-        return
+        # Minimize imports to reduce memory usage
+        logger.info("Launching minimal version of the app during market closure")
     
-    # Market is open or bypass is enabled - continue with full app
-    logger.info("Market is open or bypass enabled. Starting full app.")
-    os.environ["MARKET_CLOSED"] = "False"
-    os.environ["MINIMAL_MODE"] = "False"
-    
-    # If running directly, initialize token status page
-    try:
-        from token_status import register_token_endpoints
-        import importlib.util
-        
-        # Check if chartink_webhook module has been imported
-        if importlib.util.find_spec("chartink_webhook") is not None:
-            import chartink_webhook
-            # If the app attribute exists, check if token endpoints are already registered
-            if hasattr(chartink_webhook, 'app'):
-                # Set a flag on the app to track if token_status has been registered
-                if not hasattr(chartink_webhook.app, '_token_status_registered'):
-                    chartink_webhook.app = register_token_endpoints(chartink_webhook.app)
-                    setattr(chartink_webhook.app, '_token_status_registered', True)
-                    logger.info("Registered token status endpoints with main application")
-                else:
-                    logger.info("Token status endpoints already registered, skipping")
-    except Exception as e:
-        logger.error(f"Error registering token status endpoints: {e}")
-    
-    # Start the Flask application using gunicorn for production
-    port = int(os.getenv("PORT", 5000))
-    logger.info(f"Starting chartink_webhook.py with gunicorn on port {port}...")
-    
-    # Import the app without running it
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    
-    # Use gunicorn for production with optimized settings
-    try:
-        from gunicorn.app.wsgiapp import WSGIApplication
-        
-        class GunicornApp(WSGIApplication):
-            def __init__(self, app_uri, options=None):
-                self.options = options or {}
-                self.app_uri = app_uri
-                super().__init__()
-                
-            def load_config(self):
-                for key, value in self.options.items():
-                    if key in self.cfg.settings and value is not None:
-                        self.cfg.set(key.lower(), value)
-        
-        # Optimize gunicorn settings for Railway
-        options = {
-            'bind': f'0.0.0.0:{port}',
-            'workers': 1,  # Use 1 worker to save resources
-            'threads': 4,  # Use threads for better memory usage
-            'timeout': 120,
-            'accesslog': '-',  # Log to stdout
-            'errorlog': '-',   # Log errors to stdout
-            'loglevel': 'info',
-            'worker_class': 'gthread',  # Use gthread for better memory usage
-            'max_requests': 1000,       # Restart workers after handling 1000 requests to prevent memory bloat
-            'max_requests_jitter': 500  # Add jitter to prevent all workers restarting at once
-        }
-        
-        # Run the gunicorn app
-        GunicornApp('chartink_webhook:app', options).run()
-    except ImportError:
-        # Fallback to direct Flask app execution if gunicorn is not available
-        logger.warning("Gunicorn not available, falling back to Flask development server")
-        subprocess.run([sys.executable, "chartink_webhook.py"])
+    # The main waiting function also acts as the process monitor
+    wait_for_market_open()
 
 if __name__ == "__main__":
     main() 

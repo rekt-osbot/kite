@@ -4,86 +4,118 @@ import json
 import requests
 from datetime import datetime, date
 from dotenv import load_dotenv
+from telegram import Bot
 
 logger = logging.getLogger(__name__)
 
 class TelegramNotifier:
     """
-    A class to handle Telegram notifications for the trading system.
+    Notification service using Telegram bot API
     """
-    
-    def __init__(self, token=None, chat_id=None):
-        # Load environment variables
-        load_dotenv()
+    def __init__(self):
+        """Initialize Telegram bot connection"""
+        # Get credentials from environment variables
+        self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
         
-        # Initialize logger
-        self.logger = logging.getLogger('telegram_notifier')
-        
-        # Set Telegram API token and chat ID
-        self.token = token or os.getenv("TELEGRAM_BOT_TOKEN")
-        self.chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID")
-        self.base_url = f"https://api.telegram.org/bot{self.token}"
-        
-        # Initialize
-        self.enabled = True
-        self._check_config()
-    
-    def update_config(self, token=None, chat_id=None, enabled=True):
-        """Update the configuration for the Telegram notifier"""
-        if token:
-            self.token = token
-            self.base_url = f"https://api.telegram.org/bot{self.token}"
-        
-        if chat_id:
-            self.chat_id = chat_id
-        
-        self.enabled = enabled
-        self._check_config()
-    
-    def _check_config(self):
-        """Check if the configuration is valid"""
-        if not self.token or not self.chat_id:
-            self.logger.warning("Telegram notifications disabled: Missing API token or chat ID")
+        # Verify credentials
+        if not self.telegram_token or not self.telegram_chat_id:
+            self.logger.warning("Telegram credentials not configured - notifications disabled")
             self.enabled = False
-    
-    def is_enabled(self):
-        """Return whether the notifier is enabled with valid configuration"""
-        return self.enabled
+            return
+            
+        # Initialize bot
+        try:
+            self.bot = Bot(token=self.telegram_token)
+            self.enabled = True
+            self.logger.info("Telegram notification service initialized")
+        except Exception as e:
+            self.logger.error(f"Telegram initialization failed: {str(e)}")
+            self.enabled = False
     
     def send_message(self, message, disable_notification=False):
         """
-        Send a message to the configured Telegram chat.
-        
-        Args:
-            message (str): The message text to send.
-            disable_notification (bool): Whether to send the message silently.
-        
-        Returns:
-            bool: True if the message was sent successfully, False otherwise.
+        Send message to Telegram chat
         """
         if not self.enabled:
-            self.logger.debug("Telegram notifications are disabled. Message not sent.")
+            self.logger.warning("Telegram notifications disabled - message not sent")
+            return False
+            
+        try:
+            self.bot.send_message(
+                chat_id=self.telegram_chat_id,
+                text=message,
+                parse_mode="HTML",
+                disable_notification=disable_notification
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to send Telegram message: {str(e)}")
+            return False
+    
+    def send_formatted_notification(self, title, message, status="info", disable_notification=False):
+        """
+        Send a beautifully formatted notification message to Telegram
+        
+        Parameters:
+        - title: The notification title
+        - message: The main message content
+        - status: One of "success", "warning", "error", "info"
+        - disable_notification: Whether to send silently
+        """
+        if not self.enabled:
+            self.logger.warning("Telegram notifications disabled - message not sent")
             return False
         
+        # Status icons and styling
+        status_formats = {
+            "success": {"icon": "✅", "header": "🟢"},
+            "warning": {"icon": "⚠️", "header": "🟠"},
+            "error": {"icon": "❌", "header": "🔴"},
+            "info": {"icon": "ℹ️", "header": "🔵"},
+            "market_open": {"icon": "📈", "header": "🟢"},
+            "market_closed": {"icon": "📉", "header": "⚪"},
+            "auth": {"icon": "🔑", "header": "🔐"},
+            "alert": {"icon": "🔔", "header": "🚨"},
+        }
+        
+        # Default to info if invalid status
+        format_data = status_formats.get(status.lower(), status_formats["info"])
+        
+        # Current timestamp
+        import pytz
+        
+        timestamp = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M:%S IST")
+        
+        # Create a well-formatted message with a border
+        formatted_msg = (
+            f"{format_data['header']} <b>{title}</b> {format_data['icon']}\n\n"
+            f"{message}\n\n"
+            f"<i>📆 {timestamp}</i>\n"
+            f"<code>Kite Trading Bot</code>"
+        )
+        
         try:
-            payload = {
-                "chat_id": self.chat_id,
-                "text": message,
-                "parse_mode": "HTML",
-                "disable_notification": disable_notification
-            }
-            
-            response = requests.post(f"{self.base_url}/sendMessage", json=payload)
-            
-            if response.status_code == 200:
-                self.logger.debug(f"Telegram message sent successfully")
-                return True
-            else:
-                self.logger.error(f"Failed to send Telegram message: {response.text}")
-                return False
+            self.bot.send_message(
+                chat_id=self.telegram_chat_id,
+                text=formatted_msg,
+                parse_mode="HTML",
+                disable_notification=disable_notification
+            )
+            return True
         except Exception as e:
-            self.logger.error(f"Error sending Telegram message: {e}")
-            return False
+            self.logger.error(f"Failed to send formatted Telegram message: {str(e)}")
+            # Fallback to simple message if HTML formatting fails
+            try:
+                simple_msg = f"{title}\n\n{message}\n\nTime: {timestamp}"
+                self.bot.send_message(
+                    chat_id=self.telegram_chat_id,
+                    text=simple_msg,
+                    disable_notification=disable_notification
+                )
+                return True
+            except:
+                return False
     
     def notify_chartink_alert(self, scan_name, stocks, prices):
         """
@@ -121,7 +153,7 @@ class TelegramNotifier:
             for i, (stock, price) in enumerate(zip(stocks, prices)):
                 message += f"- <b>{stock}</b>: ₹{price}\n"
             
-            return self.send_message(message)
+            return self.send_formatted_notification("ChartInk Alert", message)
         except Exception as e:
             self.logger.error(f"Failed to create chartink alert notification: {e}")
             return False
@@ -159,7 +191,7 @@ class TelegramNotifier:
             message += f"<b>Time:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             message += f"<b>Order ID:</b> <code>{order_id}</code>\n"
             
-            return self.send_message(message)
+            return self.send_formatted_notification("Trade Notification", message)
         except Exception as e:
             self.logger.error(f"Failed to create trade notification: {e}")
             return False
@@ -183,7 +215,7 @@ class TelegramNotifier:
                 message = f"⚠️ <b>Authentication Failed</b>\n\n"
                 message += f"Zerodha authentication token has expired. Please log in again."
             
-            return self.send_message(message)
+            return self.send_formatted_notification("Authentication Status", message)
         except Exception as e:
             self.logger.error(f"Failed to create auth status notification: {e}")
             return False
@@ -203,7 +235,7 @@ class TelegramNotifier:
             if not trades_data:
                 message = f"📊 <b>Portfolio Summary</b> - {date.today().strftime('%d %b %Y')}\n\n"
                 message += "No active positions found."
-                return self.send_message(message)
+                return self.send_formatted_notification("Portfolio Summary", message)
             
             # Count positions by type
             mis_buy = sum(1 for t in trades_data if t.get('signal', '').upper() == 'BUY' and t.get('product') == 'MIS')
@@ -275,7 +307,7 @@ class TelegramNotifier:
             if len(trades_data) > 10:
                 message += f"\n... and {len(trades_data) - 10} more positions"
             
-            return self.send_message(message)
+            return self.send_formatted_notification("Portfolio Summary", message)
         except Exception as e:
             self.logger.error(f"Error sending day summary notification: {e}")
             return False
@@ -283,7 +315,7 @@ class TelegramNotifier:
     def send_test_message(self):
         """Send a test message to verify Telegram configuration"""
         test_message = "🧪 <b>Test Message</b>\n\nThis is a test message from your trading application to verify Telegram notifications are working correctly."
-        return self.send_message(test_message)
+        return self.send_formatted_notification("Test Message", test_message)
 
 if __name__ == "__main__":
     # Configure basic logging

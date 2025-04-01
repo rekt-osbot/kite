@@ -10,8 +10,9 @@ from dotenv import load_dotenv
 from scheduler import start_scheduler, is_market_open, calculate_next_market_open
 from nse_holidays import is_market_holiday, get_next_trading_day
 from token_manager import token_manager
-import memory_optimizer  # Import memory optimizer
+from memory_optimizer import MemoryOptimizer  # Add proper import
 from functools import wraps
+from flask_cors import CORS
 
 # Configure logging to output to console
 logging.basicConfig(
@@ -111,57 +112,132 @@ MARKET_CLOSED_HTML = """
 </html>
 """
 
+# Check if we're in minimal mode (market closed)
+MARKET_MODE = os.getenv("MARKET_MODE", "FULL").upper()
+IS_MINIMAL_MODE = MARKET_MODE == "MINIMAL"
+
+# If in minimal mode, log for debugging
+if IS_MINIMAL_MODE:
+    logger.info("Running in MINIMAL mode - market is closed")
+else:
+    logger.info("Running in FULL mode - market is open")
+
+# Create Flask app
+app = Flask(__name__, static_folder='static', static_url_path='')
+
+# Register memory optimizer in the app
+memory_optimizer_instance = MemoryOptimizer()
+app.memory_optimizer = memory_optimizer_instance
+
+# Start memory optimization if in minimal mode to reduce resource usage
+if IS_MINIMAL_MODE:
+    logger.info("Market is closed at {}. Serving market-closed page.".format(
+        datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M:%S")
+    ))
+    memory_optimizer_instance.start_minimal_mode()
+
+# Define function to create market closed app
 def create_market_closed_app():
-    """Create a Flask app that only shows a 'market closed' page with memory optimization"""
-    closed_app = Flask(__name__)
+    """
+    Create a minimal Flask app that only shows market closed page.
+    This is used when the market is closed to reduce resource usage.
+    """
+    minimal_app = Flask(__name__)
+    CORS(minimal_app)
     
-    # Enable memory optimization for minimal app
-    memory_optimizer.start_optimization()
+    # Register memory optimizer 
+    minimal_app.memory_optimizer = memory_optimizer_instance
     
-    @closed_app.route('/', defaults={'path': ''})
-    @closed_app.route('/<path:path>')
+    # Define route handler for all paths
+    @minimal_app.route('/', defaults={'path': ''})
+    @minimal_app.route('/<path:path>')
     def market_closed(path):
+        # Get current time in IST
         now = datetime.now(IST)
+        current_time = now.strftime("%Y-%m-%d %H:%M:%S IST")
         
-        # Calculate next market open time
-        next_market_open = calculate_next_market_open()
+        # Calculate next market open
+        next_open = calculate_next_market_open()
+        next_open_time = next_open.strftime("%Y-%m-%d %H:%M:%S IST") if next_open else "Unknown"
         
-        # Get reason for market closure
-        closure_reason = "Market is closed"
-        if now.weekday() > 4:
-            closure_reason = "Market is closed for the weekend"
+        # Determine closure reason
+        weekday = now.weekday()
+        if weekday > 4:  # Weekend
+            closure_reason = f"Today is a {'Saturday' if weekday == 5 else 'Sunday'} (Weekend)"
         elif is_market_holiday(now.date()):
-            # Get the holiday description
-            from nse_holidays import fetch_nse_holidays
-            holidays = fetch_nse_holidays()
-            date_str = now.strftime('%Y-%m-%d')
-            for holiday in holidays:
-                if holiday.get('date') == date_str:
-                    closure_reason = f"Market is closed for {holiday.get('description')}"
-                    break
-            
-            # Clean up after use
-            memory_optimizer.cleanup_modules(['nse_holidays'])
+            closure_reason = "Today is a market holiday"
         else:
             # Must be outside trading hours
-            closure_reason = "Market is closed outside trading hours"
+            closure_reason = "Current time is outside regular trading hours (9:00 AM - 3:30 PM IST)"
         
-        next_open_str = next_market_open.strftime('%Y-%m-%d %H:%M:%S IST') if next_market_open else "Unknown"
-        current_time_str = now.strftime('%Y-%m-%d %H:%M:%S IST')
-        
+        # Render the template with current context
         return render_template_string(
-            MARKET_CLOSED_HTML, 
-            current_time=current_time_str,
-            next_open_time=next_open_str,
+            MARKET_CLOSED_HTML,
+            current_time=current_time,
+            next_open_time=next_open_time,
             closure_reason=closure_reason
         )
     
-    # Register shutdown function to stop optimization
-    @closed_app.teardown_appcontext
-    def shutdown_memory_optimizer(exception=None):
-        memory_optimizer.stop_optimization()
+    # API endpoints that should work even when market is closed
+    @minimal_app.route('/api/market/status', methods=['GET'])
+    def market_status():
+        """Get the current market status"""
+        now = datetime.now(IST)
+        next_open = calculate_next_market_open()
+        
+        return jsonify({
+            "status": "success",
+            "market_open": False,
+            "current_time": now.strftime("%Y-%m-%d %H:%M:%S IST"),
+            "next_open": next_open.strftime("%Y-%m-%d %H:%M:%S IST") if next_open else None,
+            "mode": "MINIMAL"
+        })
     
-    return closed_app
+    # Auth related endpoints should still work
+    @minimal_app.route('/auth/refresh')
+    def auth_refresh():
+        """Show the token refresh page"""
+        return send_from_directory('auth', 'refresh.html')
+    
+    logger.info("Created minimal application for market-closed hours")
+    return minimal_app
+
+# Define market-closed route to show a maintenance page for most routes when market is closed
+@app.route('/<path:path>')
+def market_closed_check(path):
+    """
+    Check if we should serve market closed page based on the path and mode
+    """
+    # Whitelist routes that should always work, even in minimal mode
+    # These are essential routes like auth, API endpoints, etc.
+    ALWAYS_ALLOWED = [
+        'auth', 
+        'api', 
+        'webhook', 
+        'favicon.ico',
+        'static'
+    ]
+    
+    # If in minimal mode and not an allowed path, show market closed page
+    if IS_MINIMAL_MODE and not any(path.startswith(route) for route in ALWAYS_ALLOWED):
+        return render_template_string(MARKET_CLOSED_HTML)
+    
+    # Otherwise, the route will be handled by other functions
+    return None  # Let other routes handle this
+
+@app.route('/')
+def index():
+    """
+    Serve the index page. Show market closed page if in minimal mode.
+    """
+    if IS_MINIMAL_MODE:
+        return render_template_string(MARKET_CLOSED_HTML)
+        
+    # Normal index page logic
+    return app.send_static_file('index.html')
+
+# Configure CORS
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Check if we should run the full app or just the market-closed version
 if not BYPASS_MARKET_HOURS and not is_market_open():
@@ -202,7 +278,7 @@ if not BYPASS_MARKET_HOURS and not is_market_open():
             logger.info(f"Sent market holiday notification via Telegram: Market closed for {holiday_desc}")
             
             # Clean up modules to save memory
-            memory_optimizer.cleanup_modules(['telegram_notifier', 'nse_holidays'])
+            memory_optimizer_instance.cleanup_modules(['telegram_notifier', 'nse_holidays'])
         except Exception as e:
             logger.error(f"Failed to send market holiday notification: {e}")
     
@@ -211,7 +287,7 @@ else:
     logger.info("Market is open or bypass enabled. Starting the full application...")
     
     # Start memory optimization in background
-    memory_optimizer.start_optimization()
+    memory_optimizer_instance.start_optimization()
     
     # Only import required modules when the market is open
     from kite_connect import KiteConnect
@@ -247,7 +323,7 @@ else:
         settings = storage.get_all_settings()
         
         # Use memory_optimizer to optimize the dictionary
-        return memory_optimizer.optimize_dict({
+        return memory_optimizer_instance.optimize_dict({
             'DEFAULT_QUANTITY': int(settings.get('DEFAULT_QUANTITY', "1")),
             'MAX_TRADE_VALUE': float(settings.get('MAX_TRADE_VALUE', "5000"))
         })
@@ -1201,34 +1277,63 @@ else:
     # Add shutdown hook to clean up resources
     @app.teardown_appcontext
     def shutdown_memory_optimizer(exception=None):
-        memory_optimizer.stop_optimization()
+        memory_optimizer_instance.stop_optimization()
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
-    debug = os.getenv("DEBUG", "False").lower() == "true"
+    import gunicorn.app.base
     
-    # Log the current time in IST
-    now = datetime.now(IST)
-    logger.info(f"Starting application at {now.strftime('%Y-%m-%d %H:%M:%S IST')}")
+    # Define a minimal Gunicorn application
+    class StandaloneApplication(gunicorn.app.base.BaseApplication):
+        def __init__(self, app, options=None):
+            self.options = options or {}
+            self.application = app
+            super().__init__()
+        
+        def load_config(self):
+            for key, value in self.options.items():
+                self.cfg.set(key.lower(), value)
+        
+        def load(self):
+            return self.application
     
-    # For the full app only, start the required services
-    # Check if we're running the market closed app or the full app
-    if not BYPASS_MARKET_HOURS and not is_market_open():
-        # Market is closed - just run the lightweight version without other services
+    # Create market closed app or full app based on market status
+    if IS_MINIMAL_MODE:
+        logger.info("Created minimal application for market-closed hours")
+        app = create_market_closed_app()
+        logger.info(f"Starting application at {datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S IST')}")
+        
+        # Check if market is open
+        now = datetime.now(pytz.timezone('Asia/Kolkata'))
+        market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+        
         logger.info("Running lightweight market-closed version with memory optimization")
-        app.run(host="0.0.0.0", port=port, debug=debug)
     else:
-        # Market is open - run the full app with all services
-        # Attempt to authenticate to check if token is valid
-        authenticate_kite()
-        
-        # Start the auth checker scheduler
+        # Only in full mode, start scheduler and services
+        logger.info("Starting application in FULL mode")
         start_scheduler()
+        logger.info(f"Starting application at {datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S IST')}")
         
-        # Schedule the daily summary task - default at 3:30 PM IST (market close time)
-        scheduler.add_job(send_day_summary, 'cron', hour=15, minute=30, timezone='Asia/Kolkata')
-        scheduler.start()
+        # Set up memory optimizer
+        memory_optimizer_instance.start_normal_mode()
+        
+        logger.info("Running with FULL trading capabilities")
     
-        # Start the server (full app)
-        logger.info(f"Starting webhook server on port {port} with memory optimization")
-        app.run(host="0.0.0.0", port=port, debug=debug) 
+    # Check if we're in production mode
+    is_production = os.getenv("ENVIRONMENT", "development").lower() == "production"
+    
+    # When deployed on Railway, run with gunicorn
+    if os.getenv("RAILWAY_ENVIRONMENT") or is_production:
+        options = {
+            "bind": "0.0.0.0:5000",
+            "workers": 1,  # Single worker to save memory
+            "timeout": 120,
+            "accesslog": "-",  # Log to stdout
+            "errorlog": "-",   # Log to stderr
+            "preload_app": True,
+            "worker_class": "sync"
+        }
+        StandaloneApplication(app, options).run()
+    else:
+        # Only in development, use Flask's dev server
+        app.run(host='0.0.0.0', port=5000) 

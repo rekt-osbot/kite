@@ -165,6 +165,33 @@ The `file_storage.py` provides a lightweight alternative to database storage:
 - Settings storage with defaults
 - Thread-safe operations
 
+### 8. Optimized Notification System
+
+The Telegram notification system has been optimized for better user experience:
+
+- **Combined Alert & Trade Notifications**: ChartInk alerts and the corresponding trade executions are combined into a single notification message rather than sending separate messages
+- **Selective Notifications**: Login notifications are disabled to reduce notification noise while critical system notifications (token expiry, market status) are preserved
+- **Customizable Notification Settings**: User can enable/disable specific notification types through settings
+- **Rich Notification Format**: Notifications include emojis, formatting, and clickable links for better readability
+- **End-of-Day Summaries**: Automatic daily trading summaries with P&L analysis
+
+Example of combined notification format:
+```
+🟢 ChartInk BUY Alert with Orders
+
+Scan: Short term breakouts
+Time: 2025-04-01 10:45:32
+
+Orders Placed: 2 of 3
+Total Value: ₹9500.00
+
+Trades:
+- STOCK1: BUY 25 @ ₹200.00 = ₹5000.00
+  Order ID: 123456789
+- STOCK2: BUY 30 @ ₹150.00 = ₹4500.00
+  Order ID: 987654321
+```
+
 ## System Constants and Configurations
 
 ### Environmental Variables
@@ -175,11 +202,13 @@ Key configuration parameters are loaded from environment variables:
 KITE_API_KEY          # Zerodha API key
 KITE_API_SECRET       # Zerodha API secret
 DEFAULT_QUANTITY      # Default order quantity
-MAX_TRADE_VALUE       # Maximum value per tra
+MAX_TRADE_VALUE       # Maximum value per trade
 API_RATE_LIMIT        # API calls per second (default: 3)
 PORT                  # Server port (default: 5000)
 BYPASS_MARKET_HOURS   # Testing flag to bypass market hours check
 MINIMAL_MODE          # Flag for running in minimal mode
+TELEGRAM_BOT_TOKEN    # Telegram bot token for notifications
+TELEGRAM_CHAT_ID      # Telegram chat ID for receiving notifications
 ```
 
 ### Railway Deployment Optimization
@@ -210,7 +239,7 @@ Market operation parameters:
 6. Position size is calculated based on Maximum Trade Value (per stock limit)
 7. Stocks with prices higher than Maximum Trade Value are skipped
 8. Market order is placed with delivery (CNC) order type
-9. Trade details are logged and notifications sent
+9. Trade details are logged and consolidated notifications sent
 10. Dashboard is updated with new positions and orders
 
 ## Technical Limitations
@@ -228,6 +257,37 @@ Market operation parameters:
 4. ✅ **Token Expiration Handling**: Added centralized token management with accurate 6 AM IST expiration detection, clear user notifications, and token status dashboard
 5. ✅ **Railway Environment Optimization**: Implemented memory optimization with adaptive resource usage, garbage collection, and module unloading to reduce costs on Railway
 6. ✅ **Simplified Trading Logic**: Streamlined position sizing to use only Maximum Trade Value per stock, with no automatic stop losses
+7. ✅ **Enhanced Error Handling**: Improved error handling throughout the application with robust fallbacks and sensible defaults
+8. ✅ **Optimized Notification System**: Disabled login notifications and combined ChartInk alerts with trade notifications for a cleaner notification experience
+9. ✅ **Dashboard Improvements**: Enhanced the trading dashboard with better error handling and data display
+
+## Maintenance and Operations Guide
+
+### Daily Operations
+
+1. **Token Renewal**: The Zerodha API token expires daily at 6 AM IST. The system will automatically notify when the token is about to expire during market hours.
+2. **Monitoring**: Check the dashboard for active positions, P&L, and any error messages.
+3. **End-of-Day Summary**: A trading summary is automatically sent at market close (3:30 PM IST) via Telegram.
+
+### Updating the System
+
+1. **Code Updates**: Pull the latest code and restart the application.
+2. **Configuration Changes**: Update environment variables as needed.
+3. **Trade Settings**: Modify DEFAULT_QUANTITY and MAX_TRADE_VALUE through the settings page.
+
+## Conclusion
+
+The Kite Trading Bot provides a robust, automated trading solution that integrates with ChartInk for technical analysis signals and Zerodha's Kite API for order execution. The system has been optimized for reliability, resource efficiency, and user experience with features like rate limiting, market status awareness, memory optimization, and intelligent notifications.
+
+The latest improvements to the notification system ensure that users receive only critical alerts while combining related notifications to reduce clutter. The system is now more stable with enhanced error handling throughout the application.
+
+Future development could focus on:
+1. **Advanced Trading Strategies**: Implement more sophisticated entry/exit rules and risk management
+2. **Machine Learning Integration**: Add ML-based signal filtering to improve trade quality
+3. **Extended Analytics**: Enhance P&L reporting and performance metrics
+4. **Multi-User Support**: Enable multiple trading accounts and user profiles
+
+This project demonstrates effective integration of multiple technical systems (APIs, webhooks, notification systems) while maintaining operational efficiency and resource optimization suitable for cloud deployment.
 
 ## For AI Developers
 
@@ -239,4 +299,6 @@ When making modifications to this codebase, consider:
 4. **Logging**: Maintain detailed logging for troubleshooting
 5. **Dependencies**: Use lazy imports for any cross-module dependencies that could become circular
 6. **Memory Usage**: Leverage the memory optimizer for resource-intensive operations
-7. **Token Management**: Use the token manager for all token-related operations 
+7. **Token Management**: Use the token manager for all token-related operations
+8. **Notification Strategy**: Follow the established pattern of providing only necessary notifications
+9. **User Experience**: Always consider the end-user experience when implementing new features 
