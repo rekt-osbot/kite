@@ -26,8 +26,12 @@ class FileStorage:
         self.data_dir = data_dir
         
         # Create data directory if it doesn't exist
-        if not os.path.exists(data_dir):
-            os.makedirs(data_dir, exist_ok=True)
+        try:
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir, exist_ok=True)
+                logger.info(f"Created data directory: {data_dir}")
+        except Exception as e:
+            logger.error(f"Error creating data directory: {e}")
         
         # File paths
         self.token_file = os.path.join(data_dir, "token.json")
@@ -59,11 +63,22 @@ class FileStorage:
             "expires_timestamp": time.mktime(expires_at.timetuple())
         }
         
+        # Ensure data directory exists
+        try:
+            if not os.path.exists(self.data_dir):
+                os.makedirs(self.data_dir, exist_ok=True)
+                logger.info(f"Created data directory before saving token: {self.data_dir}")
+        except Exception as e:
+            logger.error(f"Error creating data directory for token: {e}")
+        
         # Write to file
-        with open(self.token_file, "w") as f:
-            json.dump(token_data, f, indent=2)
-            
-        logger.info(f"Saved token for user {username} (expires in {expires_in_hours} hours)")
+        try:
+            with open(self.token_file, "w") as f:
+                json.dump(token_data, f, indent=2)
+            logger.info(f"Saved token for user {username} (expires in {expires_in_hours} hours)")
+        except Exception as e:
+            logger.error(f"Error writing token to file: {e}")
+        
         return token_data
     
     def get_token(self):

@@ -371,10 +371,15 @@ def main():
         # Check if chartink_webhook module has been imported
         if importlib.util.find_spec("chartink_webhook") is not None:
             import chartink_webhook
-            # If the app attribute exists, register token endpoints
+            # If the app attribute exists, check if token endpoints are already registered
             if hasattr(chartink_webhook, 'app'):
-                chartink_webhook.app = register_token_endpoints(chartink_webhook.app)
-                logger.info("Registered token status endpoints with main application")
+                # Set a flag on the app to track if token_status has been registered
+                if not hasattr(chartink_webhook.app, '_token_status_registered'):
+                    chartink_webhook.app = register_token_endpoints(chartink_webhook.app)
+                    setattr(chartink_webhook.app, '_token_status_registered', True)
+                    logger.info("Registered token status endpoints with main application")
+                else:
+                    logger.info("Token status endpoints already registered, skipping")
     except Exception as e:
         logger.error(f"Error registering token status endpoints: {e}")
     

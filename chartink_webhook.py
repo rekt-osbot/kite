@@ -540,11 +540,8 @@ else:
         if any(term in scan_name.lower() for term in ["sell", "short", "bearish", "breakdown", "down"]):
             action = "SELL"
         
-        # Notify via Telegram
-        try:
-            telegram.notify_chartink_alert(scan_name, stocks, prices)
-        except Exception as e:
-            logger.error(f"Error sending notification: {e}")
+        # We'll no longer send a separate ChartInk alert - combined notification will be sent after order placement
+        # Instead, we'll collect successful trades and send a combined notification at the end
         
         # Store alert in memory
         alert_data = {
@@ -574,6 +571,7 @@ else:
         success_count = 0
         error_count = 0
         funds_used = 0
+        successful_trades = []  # To collect information about successful trades
         
         # Process each stock in the alert
         for i, stock in enumerate(stocks):
@@ -611,19 +609,21 @@ else:
                             f"Price = ₹{price}, Calculated quantity = {quantity}")
                 
                 # Prepend NSE: to stock if not already present
+                stock_symbol = stock
                 if not (stock.startswith("NSE:") or stock.startswith("NFO:")):
-                    stock = f"NSE:{stock}"
+                    stock_symbol = f"NSE:{stock}"
                 
                 # Place the order
-                order_id = place_order(stock, action, quantity)
+                order_id = place_order(stock_symbol, action, quantity)
                 if not order_id:
                     logger.error(f"Failed to place order for {stock}")
                     error_count += 1
                     continue
                 
                 # Track funds used
-                funds_used += (price * quantity)
-                logger.info(f"Allocated ₹{price * quantity:.2f} for {stock}, total allocated: ₹{funds_used:.2f}")
+                trade_value = price * quantity
+                funds_used += trade_value
+                logger.info(f"Allocated ₹{trade_value:.2f} for {stock}, total allocated: ₹{funds_used:.2f}")
                 
                 # Log the trade details
                 trade_details = {
@@ -632,13 +632,19 @@ else:
                     "signal": action,
                     "price": price,
                     "quantity": quantity,
-                    "value": price * quantity,
+                    "value": trade_value,
                     "scanner": scan_name,
                     "order_id": order_id
                 }
                 
-                # Send trade notification to Telegram
-                telegram.notify_trade(action, stock, quantity, price, order_id)
+                # Add to successful trades list for combined notification
+                successful_trades.append({
+                    "stock": stock,
+                    "price": price,
+                    "quantity": quantity,
+                    "value": trade_value,
+                    "order_id": order_id
+                })
                 
                 # Append to trade log file (use a path that's writable in Railway)
                 try:
@@ -657,6 +663,36 @@ else:
             except Exception as e:
                 logger.error(f"Error processing stock {stock}: {e}")
                 error_count += 1
+        
+        # Send a combined notification for the ChartInk alert and trades
+        try:
+            if successful_trades:
+                # Determine emoji based on action
+                if action.upper() == "BUY":
+                    emoji = "🟢"
+                else:
+                    emoji = "🔴"
+                
+                # Create the message
+                message = f"{emoji} <b>ChartInk {action} Alert with Orders</b>\n\n"
+                message += f"<b>Scan:</b> {scan_name}\n"
+                message += f"<b>Time:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                
+                message += f"<b>Orders Placed:</b> {success_count} of {len(stocks)}\n"
+                message += f"<b>Total Value:</b> ₹{funds_used:.2f}\n\n"
+                
+                message += "<b>Trades:</b>\n"
+                for trade in successful_trades:
+                    message += f"- <b>{trade['stock']}</b>: {action} {trade['quantity']} @ ₹{trade['price']} = ₹{trade['value']:.2f}\n"
+                    message += f"  Order ID: <code>{trade['order_id']}</code>\n"
+                
+                # Send the combined message
+                telegram.send_message(message)
+            elif len(stocks) > 0:
+                # If no trades were successful but there were stocks in the alert
+                telegram.notify_chartink_alert(scan_name, stocks, prices)
+        except Exception as e:
+            logger.error(f"Error sending combined notification: {e}")
         
         logger.info(f"Alert processing complete. Success: {success_count}, Errors: {error_count}, Total funds allocated: ₹{funds_used:.2f}")
         return success_count > 0
@@ -693,10 +729,47 @@ else:
         """Get current positions"""
         try:
             positions = kite.get_positions()
-            return jsonify({"status": "success", "data": positions})
+            
+            # Check if the response is what we expect
+            if not isinstance(positions, dict):
+                logger.warning(f"Unexpected positions response format: {type(positions)}")
+                positions = {"net": [], "day": []}
+            
+            # Extract margin information for the dashboard
+            try:
+                margins = kite.get_margins()
+                equity = margins.get('equity', {})
+                available_margin = equity.get('available', {}).get('cash', 0)
+                used_margin = equity.get('utilised', {}).get('debits', 0)
+                
+                # Calculate day P&L from positions
+                day_pnl = 0
+                for position_type in ['day', 'net']:
+                    for position in positions.get(position_type, []):
+                        day_pnl += float(position.get('pnl', 0))
+                
+                return jsonify({
+                    "status": "success", 
+                    "positions": positions.get('net', []) + positions.get('day', []),
+                    "available_margin": available_margin,
+                    "used_margin": used_margin,
+                    "day_pnl": day_pnl,
+                    "data": positions  # Keep original format for backward compatibility
+                })
+            except Exception as e:
+                logger.error(f"Error calculating position details: {e}")
+                return jsonify({"status": "success", "data": positions})
         except Exception as e:
             logger.error(f"Error fetching positions: {e}")
-            return jsonify({"status": "error", "message": str(e)})
+            return jsonify({
+                "status": "error", 
+                "message": str(e),
+                "positions": [],
+                "available_margin": 0,
+                "used_margin": 0,
+                "day_pnl": 0,
+                "data": {"net": [], "day": []}
+            })
 
     @app.route('/api/orders', methods=['GET'])
     @require_auth
@@ -704,10 +777,15 @@ else:
         """Get today's orders"""
         try:
             orders = kite.get_orders()
-            return jsonify({"status": "success", "data": orders})
+            
+            if not isinstance(orders, list):
+                logger.warning(f"Unexpected orders response format: {type(orders)}")
+                orders = []
+            
+            return jsonify({"status": "success", "data": orders, "orders": orders})
         except Exception as e:
             logger.error(f"Error fetching orders: {e}")
-            return jsonify({"status": "error", "message": str(e)})
+            return jsonify({"status": "error", "message": str(e), "data": [], "orders": []})
 
     @app.route('/api/margins', methods=['GET'])
     @require_auth
@@ -715,10 +793,19 @@ else:
         """Get available margins"""
         try:
             margins = kite.get_margins()
+            
+            if not isinstance(margins, dict):
+                logger.warning(f"Unexpected margins response format: {type(margins)}")
+                margins = {"equity": {"available": {"cash": 0}, "utilised": {"debits": 0}}}
+            
             return jsonify({"status": "success", "data": margins})
         except Exception as e:
             logger.error(f"Error fetching margins: {e}")
-            return jsonify({"status": "error", "message": str(e)})
+            return jsonify({
+                "status": "error", 
+                "message": str(e),
+                "data": {"equity": {"available": {"cash": 0}, "utilised": {"debits": 0}}}
+            })
 
     @app.route('/api/alerts', methods=['GET'])
     @require_auth
@@ -744,6 +831,18 @@ else:
         try:
             # Get all settings
             settings = storage.get_all_settings()
+            
+            # Add default values if none exist
+            if not settings:
+                # Initialize with defaults
+                default_settings = {
+                    'DEFAULT_QUANTITY': '1',
+                    'MAX_TRADE_VALUE': '5000',
+                    'TELEGRAM_ENABLED': 'true'
+                }
+                storage.update_settings(default_settings)
+                settings = default_settings
+                logger.info("Initialized default settings")
             
             # Get token data for username
             token_data = storage.get_token()

@@ -156,28 +156,11 @@ class TokenManager:
         try:
             telegram = TelegramNotifier()
             
+            # Skip login notification - commented out as we don't need login notifications
             if is_new:
-                # Format time remaining nicely
-                expiry_str = self.expiry_time.strftime('%Y-%m-%d %H:%M:%S IST')
-                
-                # Check if token will expire during today's market hours
-                now = datetime.now(IST)
-                expires_during_market = (
-                    self.expiry_time.day == now.day and
-                    MARKET_OPEN_HOUR <= TOKEN_EXPIRY_HOUR <= MARKET_CLOSE_HOUR
-                )
-                
-                message = f"🔐 <b>Authentication Successful</b>\n\n"
-                message += f"User <b>{self.username}</b> has successfully logged in.\n"
-                message += f"Token will expire at <b>{expiry_str}</b>.\n\n"
-                
-                if expires_during_market:
-                    message += f"⚠️ <b>Warning:</b> Token will expire during market hours at 6 AM IST.\n"
-                    message += f"You will need to renew it before 6 AM to avoid trading interruption.\n\n"
-                
-                message += f"<i>Note: Zerodha API tokens expire daily at 6 AM IST.</i>"
-                
-                telegram.send_message(message)
+                # Login notification has been disabled as requested
+                # We only want to keep critical notifications like token expiry
+                pass
                 
             elif is_expired:
                 app_url = os.getenv("APP_URL", "")

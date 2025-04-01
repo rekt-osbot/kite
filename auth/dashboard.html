@@ -903,10 +903,15 @@
                     return response.json();
                 })
                 .then(data => {
-                    if (data.status === 'success' && data.data) {
+                    if (data.data) {
                         const equity = data.data.equity || {};
-                        document.getElementById('available-margin').textContent = '₹' + (equity.available?.cash || 0).toFixed(2);
-                        document.getElementById('used-margin').textContent = '₹' + (equity.utilised?.debits || 0).toFixed(2);
+                        const availableCash = parseFloat(equity.available?.cash || 0);
+                        const utilizedDebits = parseFloat(equity.utilised?.debits || 0);
+                        
+                        document.getElementById('available-margin').textContent = '₹' + availableCash.toFixed(2);
+                        document.getElementById('used-margin').textContent = '₹' + utilizedDebits.toFixed(2);
+                    } else if (data.status === 'error') {
+                        console.warn('Error in margins response:', data.message);
                     }
                 })
                 .catch(error => {
@@ -925,11 +930,21 @@
             `;
             
             fetch('/api/positions')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        if (response.status === 401 || response.status === 403) {
+                            localStorage.removeItem('authStatus');
+                            refreshAuthStatus(true);
+                            throw new Error('Authentication required');
+                        }
+                        throw new Error('Failed to load positions, status: ' + response.status);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     const positions = data.positions || [];
                     
-                    // Update summary values
+                    // Update summary values even if we get an error status (which will include default values)
                     document.getElementById('available-margin').textContent = '₹' + (data.available_margin || 0).toFixed(2);
                     document.getElementById('used-margin').textContent = '₹' + (data.used_margin || 0).toFixed(2);
                     document.getElementById('today-pnl').textContent = '₹' + (data.day_pnl || 0).toFixed(2);
@@ -968,33 +983,50 @@
                         
                         const tableBody = document.getElementById('positions-table-body');
                         positions.forEach(position => {
+                            if (!position) return; // Skip invalid positions
+                            
                             const row = document.createElement('tr');
-                            const pnlClass = position.pnl >= 0 ? 'profit' : 'loss';
-                            const positionType = position.quantity > 0 ? 
+                            const pnl = parseFloat(position.pnl || 0);
+                            const pnlClass = pnl >= 0 ? 'profit' : 'loss';
+                            const qty = parseInt(position.quantity || 0);
+                            const positionType = qty > 0 ? 
                                 `<span class="badge badge-buy">BUY</span>` : 
                                 `<span class="badge badge-sell">SELL</span>`;
                             const productType = position.product === 'MIS' ?
                                 `<span class="badge badge-mis">MIS</span>` :
                                 `<span class="badge badge-cnc">CNC</span>`;
                             
+                            const avgPrice = parseFloat(position.average_price || 0).toFixed(2);
+                            const lastPrice = parseFloat(position.last_price || 0).toFixed(2);
+                            
                             row.innerHTML = `
-                                <td class="symbol">${position.tradingsymbol}</td>
+                                <td class="symbol">${position.tradingsymbol || 'Unknown'}</td>
                                 <td>${productType}</td>
                                 <td>${positionType}</td>
-                                <td>${Math.abs(position.quantity)}</td>
-                                <td>₹${position.average_price.toFixed(2)}</td>
-                                <td>₹${position.last_price.toFixed(2)}</td>
-                                <td class="${pnlClass}">₹${position.pnl.toFixed(2)}</td>
+                                <td>${Math.abs(qty)}</td>
+                                <td>₹${avgPrice}</td>
+                                <td>₹${lastPrice}</td>
+                                <td class="${pnlClass}">₹${pnl.toFixed(2)}</td>
                             `;
                             tableBody.appendChild(row);
                         });
                     } else {
-                        positionsContainer.innerHTML = `
-                            <div class="empty-state">
-                                <i class="ri-file-list-3-line"></i>
-                                <p>No open positions found.</p>
-                            </div>
-                        `;
+                        if (data.status === 'error') {
+                            positionsContainer.innerHTML = `
+                                <div class="empty-state">
+                                    <i class="ri-error-warning-line"></i>
+                                    <p>Error: ${data.message || 'Could not load positions'}</p>
+                                    <p>Please try refreshing or check your authentication.</p>
+                                </div>
+                            `;
+                        } else {
+                            positionsContainer.innerHTML = `
+                                <div class="empty-state">
+                                    <i class="ri-file-list-3-line"></i>
+                                    <p>No open positions found.</p>
+                                </div>
+                            `;
+                        }
                     }
                 })
                 .catch(error => {
@@ -1002,7 +1034,8 @@
                     positionsContainer.innerHTML = `
                         <div class="empty-state">
                             <i class="ri-error-warning-line"></i>
-                            <p>Error loading positions. Please check your authentication.</p>
+                            <p>Error loading positions: ${error.message}</p>
+                            <p>Please <a href="/auth/refresh">check your authentication</a>.</p>
                         </div>
                     `;
                 });

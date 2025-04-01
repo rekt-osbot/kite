@@ -152,10 +152,12 @@ class MemoryOptimizer:
     
     def stop_periodic_cleanup(self):
         """Stop the background cleanup thread"""
-        self.is_running = False
-        if self.cleanup_thread:
-            # No need to join the thread as it's daemonized
-            logger.info("Stopped memory optimization thread")
+        if self.is_running:
+            self.is_running = False
+            if self.cleanup_thread:
+                # No need to join the thread as it's daemonized
+                logger.info("Stopped memory optimization thread")
+        # Don't log if not running to avoid log spam
 
 # Global instance
 memory_optimizer = MemoryOptimizer()
