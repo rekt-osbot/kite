@@ -148,31 +148,39 @@ def create_market_closed_app():
     @minimal_app.route('/', defaults={'path': ''})
     @minimal_app.route('/<path:path>')
     def market_closed(path):
-        # Get current time in IST
-        now = datetime.now(IST)
-        current_time = now.strftime("%Y-%m-%d %H:%M:%S IST")
-        
-        # Calculate next market open
-        next_open = calculate_next_market_open()
-        next_open_time = next_open.strftime("%Y-%m-%d %H:%M:%S IST") if next_open else "Unknown"
-        
-        # Determine closure reason
-        weekday = now.weekday()
-        if weekday > 4:  # Weekend
-            closure_reason = f"Today is a {'Saturday' if weekday == 5 else 'Sunday'} (Weekend)"
-        elif is_market_holiday(now.date()):
-            closure_reason = "Today is a market holiday"
-        else:
-            # Must be outside trading hours
-            closure_reason = "Current time is outside regular trading hours (9:00 AM - 3:30 PM IST)"
-        
-        # Render the template with current context
-        return render_template_string(
-            MARKET_CLOSED_HTML,
-            current_time=current_time,
-            next_open_time=next_open_time,
-            closure_reason=closure_reason
-        )
+        try:
+            # Get current time in IST
+            now = datetime.now(IST)
+            current_time = now.strftime("%Y-%m-%d %H:%M:%S IST")
+            
+            # Calculate next market open
+            next_open = calculate_next_market_open()
+            next_open_time = next_open.strftime("%Y-%m-%d %H:%M:%S IST") if next_open else "Unknown"
+            
+            # Determine closure reason
+            weekday = now.weekday()
+            if weekday > 4:  # Weekend
+                closure_reason = f"Today is a {'Saturday' if weekday == 5 else 'Sunday'} (Weekend)"
+            elif is_market_holiday(now.date()):
+                closure_reason = "Today is a market holiday"
+            else:
+                # Must be outside trading hours
+                closure_reason = "Current time is outside regular trading hours (9:00 AM - 3:30 PM IST)"
+            
+            # Render the template with current context
+            return render_template_string(
+                MARKET_CLOSED_HTML,
+                current_time=current_time,
+                next_open_time=next_open_time,
+                closure_reason=closure_reason
+            )
+        except Exception as e:
+            logger.error(f"Error rendering market closed page: {e}")
+            # Return a simple response if template rendering fails
+            return jsonify({
+                "status": "maintenance", 
+                "message": "Market is currently closed. Service will resume during market hours."
+            }), 200
     
     # API endpoints that should work even when market is closed
     @minimal_app.route('/api/market/status', methods=['GET'])
@@ -188,6 +196,11 @@ def create_market_closed_app():
             "next_open": next_open.strftime("%Y-%m-%d %H:%M:%S IST") if next_open else None,
             "mode": "MINIMAL"
         })
+    
+    @minimal_app.route('/health')
+    def health_check():
+        """Health check endpoint for Railway"""
+        return jsonify({"status": "healthy"})
     
     # Auth related endpoints should still work
     @minimal_app.route('/auth/refresh')
@@ -231,7 +244,11 @@ def index():
         return render_template_string(MARKET_CLOSED_HTML)
         
     # Normal index page logic
-    return app.send_static_file('index.html')
+    try:
+        return app.send_static_file('index.html')
+    except Exception as e:
+        logger.error(f"Error serving index.html: {e}")
+        return jsonify({"status": "running", "message": "Application is running but index page not found"}), 200
 
 # Configure CORS
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -380,6 +397,11 @@ else:
     def index():
         """Dashboard page"""
         return send_from_directory('auth', 'dashboard.html')
+
+    @app.route('/health')
+    def health():
+        """Health check endpoint for Railway"""
+        return jsonify({"status": "healthy"})
 
     @app.route('/auth/refresh')
     def auth_refresh():
