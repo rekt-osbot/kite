@@ -1277,21 +1277,7 @@ else:
         memory_optimizer_instance.stop_optimization()
 
 if __name__ == "__main__":
-    import gunicorn.app.base
-    
-    # Define a minimal Gunicorn application
-    class StandaloneApplication(gunicorn.app.base.BaseApplication):
-        def __init__(self, app, options=None):
-            self.options = options or {}
-            self.application = app
-            super().__init__()
-        
-        def load_config(self):
-            for key, value in self.options.items():
-                self.cfg.set(key.lower(), value)
-        
-        def load(self):
-            return self.application
+    import sys
     
     # Create market closed app or full app based on market status
     if IS_MINIMAL_MODE:
@@ -1319,18 +1305,39 @@ if __name__ == "__main__":
     # Check if we're in production mode
     is_production = os.getenv("ENVIRONMENT", "development").lower() == "production"
     
-    # When deployed on Railway, run with gunicorn
-    if os.getenv("RAILWAY_ENVIRONMENT") or is_production:
-        options = {
-            "bind": "0.0.0.0:5000",
-            "workers": 1,  # Single worker to save memory
-            "timeout": 120,
-            "accesslog": "-",  # Log to stdout
-            "errorlog": "-",   # Log to stderr
-            "preload_app": True,
-            "worker_class": "sync"
-        }
-        StandaloneApplication(app, options).run()
+    # When deployed on Railway or in production, use gunicorn (but only on Linux/Mac)
+    if (os.getenv("RAILWAY_ENVIRONMENT") or is_production) and not sys.platform.startswith('win'):
+        try:
+            import gunicorn.app.base
+            
+            # Define a minimal Gunicorn application
+            class StandaloneApplication(gunicorn.app.base.BaseApplication):
+                def __init__(self, app, options=None):
+                    self.options = options or {}
+                    self.application = app
+                    super().__init__()
+                
+                def load_config(self):
+                    for key, value in self.options.items():
+                        self.cfg.set(key.lower(), value)
+                
+                def load(self):
+                    return self.application
+            
+            options = {
+                "bind": "0.0.0.0:5000",
+                "workers": 1,  # Single worker to save memory
+                "timeout": 120,
+                "accesslog": "-",  # Log to stdout
+                "errorlog": "-",   # Log to stderr
+                "preload_app": True,
+                "worker_class": "sync"
+            }
+            StandaloneApplication(app, options).run()
+        except ImportError:
+            logger.warning("Gunicorn not available, falling back to Flask's built-in server")
+            app.run(host='0.0.0.0', port=5000)
     else:
-        # Only in development, use Flask's dev server
+        # In development or on Windows, use Flask's dev server
+        logger.info("Using Flask's built-in server")
         app.run(host='0.0.0.0', port=5000) 

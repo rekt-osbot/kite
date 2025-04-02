@@ -27,6 +27,10 @@ class MemoryOptimizer:
         self.interval = 300  # 5 minutes default
         self.minimal_mode = os.getenv('MARKET_MODE', 'FULL').upper() == 'MINIMAL'
         self.minimal_thread = None
+        self.cleanup_thread = None
+        self.gc_interval = 600  # 10 minutes between garbage collections
+        self.last_gc_time = time.time()
+        self.debug = os.getenv('DEBUG', 'False').lower() == 'true'
         
         if self.minimal_mode:
             logger.info("Running in minimal mode - enabling aggressive memory optimization")
@@ -139,7 +143,7 @@ class MemoryOptimizer:
     
     def periodic_cleanup(self):
         """Background thread function for periodic memory cleanup"""
-        while self.is_running:
+        while self.running:
             try:
                 current_time = time.time()
                 
@@ -150,7 +154,7 @@ class MemoryOptimizer:
                 # Sleep for a short interval to reduce CPU usage
                 # Use multiple short sleeps instead of one long sleep to allow clean shutdown
                 for _ in range(60):
-                    if not self.is_running:
+                    if not self.running:
                         break
                     time.sleep(1)
                     
@@ -161,8 +165,8 @@ class MemoryOptimizer:
     
     def start_periodic_cleanup(self):
         """Start the background cleanup thread"""
-        if not self.is_running:
-            self.is_running = True
+        if not self.running:
+            self.running = True
             self.cleanup_thread = threading.Thread(
                 target=self.periodic_cleanup,
                 daemon=True
@@ -172,12 +176,20 @@ class MemoryOptimizer:
     
     def stop_periodic_cleanup(self):
         """Stop the background cleanup thread"""
-        if self.is_running:
-            self.is_running = False
+        if self.running:
+            self.running = False
             if self.cleanup_thread:
                 # No need to join the thread as it's daemonized
                 logger.info("Stopped memory optimization thread")
         # Don't log if not running to avoid log spam
+        
+    def start_optimization(self):
+        """Start the memory optimization background thread"""
+        self.start_periodic_cleanup()
+        
+    def start_normal_mode(self):
+        """Start normal mode memory optimization"""
+        self.start_periodic_cleanup()
 
 # Global instance
 memory_optimizer = MemoryOptimizer()

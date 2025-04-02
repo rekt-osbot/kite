@@ -151,8 +151,14 @@ def restart_application(use_full_mode):
         
         # Start the application process with production-ready server
         if use_full_mode:
-            # Full mode with gunicorn for production server
-            app_process = subprocess.Popen(["gunicorn", "--bind", "0.0.0.0:5000", "chartink_webhook:app"])
+            # Check if we're on Windows
+            if sys.platform.startswith('win'):
+                # Use Flask's built-in server on Windows
+                app_process = subprocess.Popen([sys.executable, "chartink_webhook.py"])
+                logger.info("Using Flask development server on Windows instead of gunicorn")
+            else:
+                # Full mode with gunicorn for production server (Linux/Mac)
+                app_process = subprocess.Popen(["gunicorn", "--bind", "0.0.0.0:5000", "chartink_webhook:app"])
         else:
             # Minimal mode can use regular python to save resources
             app_process = subprocess.Popen([sys.executable, "chartink_webhook.py"])
