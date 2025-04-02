@@ -190,6 +190,10 @@ class MemoryOptimizer:
     def start_normal_mode(self):
         """Start normal mode memory optimization"""
         self.start_periodic_cleanup()
+        
+    def stop_optimization(self):
+        """Stop the memory optimization background thread"""
+        self.stop_periodic_cleanup()
 
 # Global instance
 memory_optimizer = MemoryOptimizer()
