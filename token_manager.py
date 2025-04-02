@@ -10,11 +10,7 @@ import time
 import pytz
 from datetime import datetime, timedelta
 from file_storage import storage
-from dependency_resolver import lazy_import
 from logger import get_logger  # Import our centralized logger
-
-# Lazy imports to avoid circular dependencies
-TelegramNotifier = lazy_import('telegram_notifier', 'TelegramNotifier')
 
 # Get logger for this module
 logger = get_logger(__name__)
@@ -150,6 +146,8 @@ class TokenManager:
     def _send_token_notification(self, is_new=False, is_expired=False):
         """Send notification about token status"""
         try:
+            # Import locally to avoid circular dependencies
+            from telegram_notifier import TelegramNotifier
             telegram = TelegramNotifier()
             
             # Skip login notification - commented out as we don't need login notifications
@@ -190,6 +188,8 @@ class TokenManager:
             message += f"1. <a href='{login_url}'>Click here to login</a> with your Zerodha credentials\n"
             message += f"2. Complete the authentication process\n\n"
             
+            # Import locally to avoid circular dependencies
+            from telegram_notifier import TelegramNotifier
             telegram = TelegramNotifier()
             telegram.send_message(message)
             
